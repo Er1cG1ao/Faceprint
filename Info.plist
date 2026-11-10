@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0"><dict>
+<key>CFBundleExecutable</key><string>Faceprint</string>
+<key>CFBundleIdentifier</key><string>io.github.er1cg1ao.faceprint</string>
+<key>CFBundleName</key><string>Faceprint</string>
+<key>CFBundleDisplayName</key><string>Faceprint</string>
+<key>CFBundlePackageType</key><string>APPL</string>
+<key>CFBundleShortVersionString</key><string>0.1.0</string>
+<key>CFBundleVersion</key><string>5</string>
+<key>LSMinimumSystemVersion</key><string>15.0</string>
+<key>LSUIElement</key><true/>
+<key>NSCameraUsageDescription</key><string>Faceprint uses your camera locally to enroll and recognize your face before filling the system password field.</string>
+<key>NSCameraUseContinuityCameraDeviceType</key><true/>
+</dict></plist>

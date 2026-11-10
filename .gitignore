@@ -1,0 +1,9 @@
+.build-cache/
+*.app/
+*.zip
+.DS_Store
+Resources/ArcFace.mlmodelc/
+Resources/*.mp4
+Resources/*.png
+vault*.json
+*.enc
