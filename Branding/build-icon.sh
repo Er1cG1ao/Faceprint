@@ -3,7 +3,7 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 iconset=$(mktemp -d /tmp/faceprint-icon.XXXXXX)
 trap 'rm -rf "$iconset"' EXIT
-for size in 16 32 128 256 512; do
+for size in 16 32 128 256 512 1024; do
     sips -z "$size" "$size" Branding/Faceprint.png --out "$iconset/icon_${size}.png" >/dev/null
     double=$((size * 2))
     sips -z "$double" "$double" Branding/Faceprint.png --out "$iconset/icon_${size}@2x.png" >/dev/null
