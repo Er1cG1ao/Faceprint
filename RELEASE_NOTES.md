@@ -1,3 +1,17 @@
+# Faceprint 1.1.0
+
+- Add opt-in Scan Touch ID prompts under Recognition (off by default, protected by the settings edit lock).
+- Recognize the enrolled face before selecting Use Password on supported English Privacy & Security / native Passwords AutoFill Touch ID cards.
+- Revalidate the signed Apple process and request before pressing the fallback button. Fill only the same process/request's verified empty secure field; no speculative Return is sent during transition.
+- Combine with the independent existing automatic Return option for final submission after verified input.
+- Preserve the manual password-entry path, settings lock, saved data and rounded icon.
+
+Build, prompt-classification/fallback-context regression tests, existing self-tests, signature and ZIP checks passed. Live Touch ID-to-password transitions and real-password filling still need user verification. Different dialog hosts/wording may require the manual path. This does not replace Touch ID, enable lock-screen unlocking or add support for unrelated authentication dialogs.
+
+Apple Silicon, macOS 15+. Ad-hoc signed and not Apple-notarized. Built on [Glance by Jonathan Zhou](https://github.com/jonnyoo/glance), MIT. InsightFace weights retain separate non-commercial research terms. [Third-party notices](THIRD_PARTY_NOTICES.md)
+
+---
+
 # Faceprint 1.0.1
 
 - Separate the settings edit lock from protected autofill data. Settings start locked; enabled autofill continues when settings are locked or closed.

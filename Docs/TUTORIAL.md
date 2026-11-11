@@ -20,7 +20,7 @@ Click **Unlock to edit** and complete the macOS authentication request. Select y
 
 Filling always uses your saved password. There is no test-character mode or camera/island preview control in Settings.
 
-Faceprint leaves each prompt's password-entry step to you. It attempts a given field once. To retry after a failure, use **Retry current prompt** in the menu bar, or hover over the failure island while it remains visible.
+By default, open each prompt's password-entry step yourself. With Scan Touch ID prompts enabled, Faceprint scans while the supported Touch ID card is focused and selects its explicit Use Password control only after recognition. It attempts a given field once. To retry after a failure, use **Retry current prompt** in the menu bar, or hover over the failure island while it remains visible.
 
 ## Locked settings and everyday autofill
 
@@ -42,11 +42,25 @@ Unlock settings and disable filling before changing these options:
 | --- | --- |
 | Dynamic Island: Original / Minimal | Selects the visual style under General. |
 | Passive photo checks (Glance Light) | Optional checks for obvious screen glare or a device around the face. No required blink or head turn. Defaults off for new installations; the choice is remembered. |
+| Scan Touch ID prompts | Off by default. Recognizes the face at a supported Touch ID card, selects Use Password, and fills only a verified empty field for that same request. |
 | Press Return after filling | Defaults off. When enabled, rechecks the target and sends Return only after verifying a real-password fill. |
 
 With automatic Return off, review the dialog and click **Modify Settings** or **OK** yourself. With it on, filling can also approve the current privileged request. Input-length verification does not establish that the password is correct; the system dialog decides that.
 
 Photo checks can reject real users and cannot reliably stop replay attacks. Ordinary RGB face recognition can accept a photo or recorded video, especially with checks off.
+
+## Face-first Touch ID flow
+
+Unlock settings, turn filling off in General, and enable **Scan Touch ID prompts** in Recognition. Enable **Press Return after filling** as well if you want final submission, then turn filling back on and lock Settings.
+
+| Touch ID scanning | Automatic Return | Result |
+| --- | --- | --- |
+| Off | Off | You open the password field; Faceprint recognizes and fills; you submit. |
+| Off | On | You open the password field; Faceprint recognizes, fills and submits. |
+| On | Off | Faceprint recognizes at the Touch ID card, selects Use Password and fills; you submit. |
+| On | On | Faceprint recognizes at the Touch ID card, selects Use Password, fills and submits. |
+
+The scan does not click anything until your face matches. The transition uses the explicit Accessibility button action, with no speculative Return. The resulting field must be empty, owned by the same signed Apple process, and match the original request. A changed request, unavailable button, timeout or failed verification stops the flow. If macOS uses a different host during fallback or exposes different wording, use the manual password-entry path. This version supports English Touch ID wording for the existing supported dialog types.
 
 ## Supported dialogs
 

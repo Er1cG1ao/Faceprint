@@ -17,7 +17,7 @@ Built on [**Glance by Jonathan Zhou**](https://github.com/jonnyoo/glance), with 
 ## What it does
 
 - **Enroll from nine directions:** capture 18 face samples through Glance's guided ring and camera preview, using the same ArcFace model.
-- **Fill supported prompts:** works with Privacy & Security and native Passwords AutoFill dialogs, including AutoFill for Dia.
+- **Fill supported prompts:** works with Privacy & Security and native Passwords AutoFill dialogs, including AutoFill for Dia. Optionally start from the Touch ID card and select the password fallback after a face match.
 - **See recognition at a glance:** choose Original or Minimal Dynamic Island animations, on displays with or without a notch.
 - **Choose when to confirm:** review and submit yourself, or opt into automatic Return after a verified fill.
 - **Keep saved data protected:** encrypt the password and face template locally, with a Secure Enclave protected session opened through macOS authentication.
@@ -25,15 +25,15 @@ Built on [**Glance by Jonathan Zhou**](https://github.com/jonnyoo/glance), with 
 
 Built with Swift, SwiftUI, AppKit, AVFoundation, and Core ML. Face processing runs locally. The app interface currently uses English; documentation is available in English and Simplified Chinese.
 
-### Current release: 1.0.1
+### Current release: 1.1.0
 
-Settings now lock independently of autofill. Unlock to edit any setting, enroll a face, or update the password; lock settings again to keep enabled autofill running. The filling switch and photo-check preference are remembered. About and the app use the updated rounded artwork supplied by the project owner. See [release notes](RELEASE_NOTES.md).
+Adds **Scan Touch ID prompts**, an optional face-first flow: detect a supported Touch ID card, recognize your face, select **Use Password…**, then verify and fill its empty password field. Combine it with automatic Return for final submission. Both options are independently controlled; Touch ID scanning is off by default. See [release notes](RELEASE_NOTES.md).
 
 ## Install and start
 
 Requires **Apple Silicon (M-series), macOS 15 or later**. Intel builds are not currently distributed.
 
-1. Download `Faceprint-1.0.1-macos-arm64.zip` from **Assets** on the [latest release](https://github.com/Er1cG1ao/faceprint/releases/latest).
+1. Download `Faceprint-1.1.0-macos-arm64.zip` from **Assets** on the [latest release](https://github.com/Er1cG1ao/faceprint/releases/latest).
 2. Quit the old version, extract the ZIP, and move `Faceprint.app` into **Applications** before granting permissions or enabling launch at login.
 3. Open Faceprint and allow **Camera** and **Accessibility** access. Click **Unlock to edit** and complete the macOS authentication request.
 4. Select your device in **Camera**, enroll from **Your Face**, and save your Mac login password in **Password**.
@@ -46,7 +46,7 @@ Distributed builds use ad hoc signing and are **not Apple-notarized**.
 
 ## Scope and privacy
 
-- Supports specific Apple system password dialogs. Faceprint fills the password fallback after you open it; it does not replace macOS Touch ID, unlock the lock screen, or provide Face ID hardware.
+- Supports specific Apple system password dialogs. By default you open the password fallback; optional Touch ID scanning selects Use Password only after a face match. It does not replace macOS Touch ID, unlock the lock screen, or provide Face ID hardware.
 - Recognition uses an ordinary RGB camera. **Photos or replayed video can be accepted.** Optional Glance Light photo checks reject some obvious spoofs and can also misidentify real users; they do not provide reliable replay protection.
 - Native Passwords AutoFill matching currently relies on English dialog wording. A verified fill checks input length; macOS decides whether the password is correct and whether the action succeeds.
 - Automatic Return is **off by default**. Enabling it can confirm a privileged settings change.

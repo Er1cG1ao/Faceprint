@@ -29,7 +29,7 @@ bash test.sh
 | `Sources/Camera.swift` | Serialized capture-session operations and the latest in-memory frame. |
 | `Sources/GuidedEnrollment.swift` | Nine-direction, 18-sample capture flow. |
 | `Sources/Recognition.swift` | ArcFace recognition and encrypted face-template storage. |
-| `Sources/PromptPolicy.swift`, `Sources/PromptTarget.swift` | Supported Apple dialog context, target revalidation, text input and Return. |
+| `Sources/PromptPolicy.swift`, `Sources/PromptTarget.swift` | Supported password/Touch ID context, same-request fallback, target revalidation, text input and Return. |
 | `Sources/InputActionPolicy.swift` | Settings authorization tickets, filling prerequisites and auto-Return policy. |
 | `Sources/SecureCredentialManager.swift` | Secure Enclave session key and encrypted vault. |
 | `Sources/SystemSetup.swift` | macOS permissions and Login Items registration/status. |

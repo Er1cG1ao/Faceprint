@@ -25,15 +25,15 @@
 
 使用 Swift、SwiftUI、AppKit、AVFoundation 和 Core ML 构建，人脸处理在本机完成。软件界面目前为英文，文档提供英文和简体中文。
 
-### 当前正式版：1.0.1
+### 当前正式版：1.1.0
 
-设置锁定与自动填充现在独立运行。修改任何设置、重新录脸或更新密码前需要解锁；再次锁定设置后，已启用的自动填充继续工作。软件会记住填写开关和照片检查选项，并使用项目作者通过 Icon Composer 提供的新版圆角图标。详见[版本说明](RELEASE_NOTES.md)。
+新增可选的 **Scan Touch ID prompts**：受支持的指纹提示出现后先扫脸，通过后选择 **Use Password…**，再检查并填入空密码框。配合自动回车可完成最后提交。两个开关独立控制，指纹框扫描默认关闭。详见[版本说明](RELEASE_NOTES.md)。
 
 ## 安装与开始使用
 
 需要 **Apple Silicon（M 系列）Mac、macOS 15 或更新版本**，目前不提供 Intel 安装包。
 
-1. 在 [最新发布页](https://github.com/Er1cG1ao/faceprint/releases/latest)的 **Assets** 中下载 `Faceprint-1.0.1-macos-arm64.zip`。
+1. 在 [最新发布页](https://github.com/Er1cG1ao/faceprint/releases/latest)的 **Assets** 中下载 `Faceprint-1.1.0-macos-arm64.zip`。
 2. 退出旧版，解压 ZIP，将 `Faceprint.app` 放入 **Applications（应用程序）**，然后再授权或启用开机自启。
 3. 打开 Faceprint，允许**摄像头**与**辅助功能**权限。点击 **Unlock to edit**，完成 macOS 身份验证。
 4. 在 **Camera** 选择摄像头，在 **Your Face** 按九方向引导录入人脸，在 **Password** 保存 Mac 登录密码。
@@ -46,7 +46,7 @@
 
 ## 支持范围与隐私
 
-- 仅支持指定的 Apple 系统密码弹窗。你打开密码输入界面后，Faceprint 才进行填写；它不会替换 macOS Touch ID、解锁锁屏或提供 Face ID 硬件。
+- 仅支持指定的 Apple 系统密码弹窗。默认由你打开密码输入界面；开启指纹提示扫描后，软件会在扫脸通过后选择 Use Password，再填写。它不会替换 macOS Touch ID、解锁锁屏或提供 Face ID 硬件。
 - 使用普通 RGB 摄像头，**照片或回放视频也可能通过识别**。可选的 Glance Light 照片检查能拒绝部分明显的冒充，也可能误判真人，无法可靠防住所有回放。
 - 原生“密码”AutoFill 匹配目前依赖英文弹窗文字。填入验证检查输入长度；密码是否正确、操作是否成功，由 macOS 决定。
 - 自动回车**默认关闭**。开启后可能直接确认具有管理员权限的设置修改。

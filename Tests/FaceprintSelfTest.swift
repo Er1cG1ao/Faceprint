@@ -78,6 +78,25 @@ enum FaceprintSelfTest {
         precondition(PromptPolicy.autofillContext(in: prompt, accountNames: ["Test User"]) == "autofill:example browser")
         precondition(PromptPolicy.autofillContext(in: prompt, accountNames: ["Another User"]) == nil)
         precondition(PromptPolicy.autofillContext(in: ["Open your Faceprint session", "OK", "Cancel"], accountNames: ["Test User"]) == nil)
+        let privacyBiometric = ["Privacy & Security is trying to modify your system settings.",
+                                "Touch ID or enter your password to continue with Privacy & Security.", "Use Password…", "Cancel"]
+        precondition(PromptPolicy.biometricContext(in: privacyBiometric, ownerBundleID: PromptPolicy.privacyBundleID) == "privacy")
+        precondition(PromptPolicy.biometricContext(in: privacyBiometric, ownerBundleID: "example.fake") == nil)
+        precondition(PromptPolicy.biometricContext(in: privacyBiometric.filter { $0 != "Use Password…" }, ownerBundleID: PromptPolicy.privacyBundleID) == nil)
+        precondition(PromptPolicy.biometricContext(in: privacyBiometric.filter { !$0.contains("Touch ID") }, ownerBundleID: PromptPolicy.privacyBundleID) == nil)
+        let autofillBiometric = ["AutoFill for “Example Browser”", "Use Touch ID to continue with Passwords.", "Use Password...", "Cancel"]
+        precondition(PromptPolicy.biometricContext(in: autofillBiometric, ownerBundleID: "com.apple.LocalAuthentication.UIAgent") == "autofill:example browser")
+        for title in ["Unlock to modify Faceprint settings", "Resume Faceprint autofill", "Authorize another app"] {
+            precondition(PromptPolicy.biometricContext(in: [title, "Touch ID", "Use Password…", "Cancel"], ownerBundleID: "com.apple.LocalAuthentication.UIAgent") == nil)
+        }
+        precondition(PromptPolicy.biometricContext(in: prompt, ownerBundleID: "com.apple.Passwords") == nil, "Password stage must not be mistaken for Touch ID")
+        precondition(!PromptPolicy.isPasswordFallbackButton("Do not use password"))
+        precondition(!PromptPolicy.isPasswordFallbackButton("Use Password and approve"))
+        precondition(PromptPolicy.isSameFallbackRequest(originalPID: 12, passwordPID: 12, originalBundleID: "apple", passwordBundleID: "apple", originalContext: "privacy", passwordContext: "privacy"))
+        for (pid, bundle, context) in [(Int32(13), "apple", "privacy"), (Int32(12), "other", "privacy"), (Int32(12), "apple", "autofill:other")] {
+            precondition(!PromptPolicy.isSameFallbackRequest(originalPID: 12, passwordPID: pid, originalBundleID: "apple", passwordBundleID: bundle, originalContext: "privacy", passwordContext: context))
+        }
+        print("PASS Touch ID prompt scope, fallback button labels, own-auth exclusion, and cross-request transition rejection")
         print("PASS native AutoFill context, wrong-account rejection, and session-prompt exclusion")
     }
 }

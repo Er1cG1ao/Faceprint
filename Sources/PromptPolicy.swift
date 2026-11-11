@@ -30,3 +30,37 @@ enum PromptPolicy {
         return "autofill:" + suffix[..<closing]
     }
 }
+
+extension PromptPolicy {
+    static func isPasswordFallbackButton(_ title: String) -> Bool {
+        let label = canonical(title).replacingOccurrences(of: "…", with: "...")
+        return label == "use password" || label == "use password..."
+    }
+
+    /// Touch ID stage only. Unrelated LocalAuthentication requests, including
+    /// Faceprint's own settings/data authentication, must not trigger a scan.
+    static func biometricContext(in strings: [String], ownerBundleID: String) -> String? {
+        let normalized = strings.map(canonical)
+        let text = normalized.joined(separator: " ")
+        guard normalized.contains(where: isPasswordFallbackButton), normalized.contains("cancel"),
+              text.contains("touch id"), !text.contains("faceprint") else { return nil }
+        if ownerBundleID == privacyBundleID {
+            guard text.contains("privacy & security"), text.contains("modify your system settings") else { return nil }
+            return "privacy"
+        }
+        guard autofillBundleIDs.contains(ownerBundleID), text.contains("passwords"),
+              let start = text.range(of: "autofill for \"") else { return nil }
+        let suffix = text[start.upperBound...]
+        guard let end = suffix.firstIndex(of: "\""), end > suffix.startIndex else { return nil }
+        return "autofill:" + suffix[..<end]
+    }
+
+    /// Bind fallback to the same app process and request. A password field in
+    /// a different process/context is never a continuation of this attempt.
+    static func isSameFallbackRequest(originalPID: Int32, passwordPID: Int32,
+                                      originalBundleID: String, passwordBundleID: String,
+                                      originalContext: String, passwordContext: String) -> Bool {
+        originalPID == passwordPID && originalBundleID == passwordBundleID
+            && originalContext == passwordContext
+    }
+}

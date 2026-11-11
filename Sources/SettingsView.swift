@@ -212,7 +212,9 @@ struct SetupView: View {
                     }.labelsHidden().frame(width: 126).disabled(!canEdit)
                 }
             }
-            caption("Open Use Password… yourself and focus the empty system password field. Faceprint starts recognition when filling is enabled.")
+            caption(controller.automaticPasswordFallback
+                ? "Supported Touch ID prompts start recognition automatically. After a match, Faceprint selects Use Password and fills."
+                : "Open Use Password… yourself and focus the empty system password field. Faceprint starts recognition when filling is enabled.")
         }
     }
 
@@ -318,6 +320,11 @@ struct SetupView: View {
                     .toggleStyle(.switch).controlSize(.small).padding(14).disabled(!canEdit)
             }
             caption("Glance Light checks for obvious screen glare or device borders. No required blink or head turn. Photos or replayed video can still be accepted.")
+            group {
+                Toggle("Scan Touch ID prompts", isOn: Binding(get: { controller.automaticPasswordFallback }, set: controller.setAutomaticPasswordFallback))
+                    .toggleStyle(.switch).controlSize(.small).padding(14).disabled(!canEdit)
+            }
+            caption("Off by default. For supported Touch ID prompts, recognize your face first, then select Use Password and fill. Automatic Return below controls the final confirmation.")
             group {
                 Toggle("Press Return after filling", isOn: Binding(get: { controller.autoSubmit }, set: controller.setAutoSubmit))
                     .toggleStyle(.switch).controlSize(.small).padding(14).disabled(!canEdit)

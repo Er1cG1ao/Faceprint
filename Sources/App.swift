@@ -16,6 +16,7 @@ final class FillController: ObservableObject {
     @Published var hasPassword = SecureCredentialManager.hasStoredPassword()
     @Published var busy = false
     @Published var passwordDraft = ""
+    @Published private(set) var automaticPasswordFallback = UserDefaults.standard.bool(forKey: "automaticPasswordFallback")
     @Published private(set) var passivePhotoChecks = UserDefaults.standard.bool(forKey: "passivePhotoChecks")
     @Published private(set) var islandStyle = GlanceSettings.shared.animationStyle {
         didSet { GlanceSettings.shared.animationStyle = islandStyle }
@@ -212,6 +213,13 @@ final class FillController: ObservableObject {
         settingsLastActivity = Date()
     }
 
+    func setAutomaticPasswordFallback(_ value: Bool) {
+        guard canEditOptions else { return }
+        automaticPasswordFallback = value
+        UserDefaults.standard.set(value, forKey: "automaticPasswordFallback")
+        settingsLastActivity = Date()
+    }
+
     func setPhotoChecks(_ value: Bool) {
         guard canEditOptions else { return }
         passivePhotoChecks = value
@@ -300,7 +308,7 @@ final class FillController: ObservableObject {
         }
         guard enabled, !busy, !screenLocked, !sleeping, userSessionActive else { return }
         if !dataSessionReady {
-            if !runtimeAuthenticationDeferred, PromptTarget.current() != nil { resumeAutofill() }
+            if !runtimeAuthenticationDeferred, FillTrigger.current(allowBiometric: automaticPasswordFallback) != nil { resumeAutofill() }
             return
         }
         guard let template else { return }
@@ -309,17 +317,17 @@ final class FillController: ObservableObject {
             enabled = false
             return
         }
-        guard let target = PromptTarget.current() else {
+        guard let trigger = FillTrigger.current(allowBiometric: automaticPasswordFallback) else {
             if let diagnostic = PromptTarget.diagnosticSummary() { promptStatus = diagnostic }
             return
         }
-        promptStatus = "Recognized \(target.description) prompt."
-        if let attemptedField, CFEqual(attemptedField, target.field) { return }
-        guard target.verifyAppleSignature() else {
+        promptStatus = "Recognized \(trigger.description) prompt."
+        if let attemptedField, CFEqual(attemptedField, trigger.element) { return }
+        guard trigger.verifyAppleSignature() else {
             status = "The focused field's Apple signature could not be verified."
             return
         }
-        attemptedField = target.field
+        attemptedField = trigger.element
         busy = true
         generation &+= 1
         let currentGeneration = generation
@@ -332,7 +340,7 @@ final class FillController: ObservableObject {
             do {
                 let recognizer = try await getRecognizer()
                 try Task.checkCancellation()
-                guard target.isCurrent(requireEmpty: true) else { throw CancellationError() }
+                guard trigger.isCurrent() else { throw CancellationError() }
                 try await camera.start(deviceID: deviceID)
                 try Task.checkCancellation()
                 let liveness = LivenessAnalyzer()
@@ -344,8 +352,8 @@ final class FillController: ObservableObject {
                 var filled = false
                 while Date() < deadline {
                     try Task.checkCancellation()
-                    guard target.isCurrent(requireEmpty: true) else {
-                        throw FillError.message("Focus changed. Return to the empty field and choose Retry from the menu.")
+                    guard trigger.isCurrent() else {
+                        throw FillError.message("Prompt changed. Return to the supported prompt and choose Retry from the menu.")
                     }
                     guard let frame = camera.latestFrame(), frame.id != lastFrame else {
                         try await Task.sleep(nanoseconds: 30_000_000)
@@ -372,9 +380,14 @@ final class FillController: ObservableObject {
                         }
                         guard snapshot.decision.isConfirmed else { continue }
                     }
-                    status = "Face recognized. Filling the password field…"
                     guard consecutiveMatches >= 3,
                           Date().timeIntervalSince(matchedSince ?? Date()) >= 0.25 else { continue }
+                    status = trigger.isBiometric ? "Face recognized. Selecting Use Password…" : "Face recognized. Filling the password field…"
+                    let target = try await trigger.passwordTargetAfterRecognition()
+                    try Task.checkCancellation()
+                    // One attempt includes both stages. Do not immediately rescan
+                    // the newly opened password field after a failed input attempt.
+                    attemptedField = target.field
                     var bytes = try SecureCredentialManager.readPassword()
                     defer { bytes.resetBytes(in: 0..<bytes.count) }
                     let verified = try await target.type(bytes)
