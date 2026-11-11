@@ -1,3 +1,12 @@
+# Faceprint 1.1.4 — test build
+
+- Support Finder’s English “wants to make changes” authorization (including Undo) at both Touch ID and manually opened password stages, alongside the existing move-to-Trash request.
+- Fix the original-process-only password lookup. A replacement Apple authentication host can continue a face-matched request only with the same context and exact request heading, plus the same AX window or matching card geometry after the original biometric stage disappears. Verify the replacement host’s Apple signature independently.
+- Prioritize an already focused, verified password field; constrain background searches to the original card area instead of scanning unrelated large Settings windows.
+- Preserve the focus/animation settling gate, empty-field verification, one-attempt scan behavior and optional Return after verified filling. No Return is used to reveal the password stage.
+
+Validation: Finder changes/manual-password, ambiguous-heading and signed-host handoff regressions, existing self-tests, build, signature and ZIP checks. The host-handoff limitation is confirmed in code; the exact live Settings failure is not yet confirmed. Real system-dialog behavior remains to be verified on the user's Mac.
+
 # Faceprint 1.1.3 — test build
 
 - Keep face recognition, password-card mounting, focus and filling inside one attempt. Stop the camera once the enrolled face matches.

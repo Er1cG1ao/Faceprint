@@ -11,7 +11,7 @@ final class FillController: ObservableObject {
     @Published private(set) var dataSessionReady = false
     @Published private(set) var settingsAccess = SettingsAccessState()
     @Published var protectionStatus = "Checking session protection…"
-    @Published var promptStatus = "Supports Privacy & Security, Finder trash authorization, and native Passwords AutoFill prompts."
+    @Published var promptStatus = "Supports Privacy & Security, Finder authorization, and native Passwords AutoFill prompts."
     @Published var hasFace = false
     @Published var hasPassword = SecureCredentialManager.hasStoredPassword()
     @Published var busy = false

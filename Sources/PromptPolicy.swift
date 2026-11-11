@@ -33,8 +33,9 @@ enum PromptPolicy {
             }
         }
         if ownerBundleID == "com.apple.finder" || authenticationBundleIDs.contains(ownerBundleID) {
-            guard text.contains("to continue with \"finder\""),
-                  let heading = normalized.first(where: {
+            guard text.contains("to continue with \"finder\"") else { return nil }
+            if text.contains("finder wants to make changes.") { return "finder-changes" }
+            guard let heading = normalized.first(where: {
                       $0.hasPrefix("finder wants to move ") && $0.hasSuffix(" to the trash.")
                   }) else { return nil }
             // Include the exact request heading: another file operation cannot
@@ -88,12 +89,43 @@ extension PromptPolicy {
         return "autofill:" + suffix[..<end]
     }
 
-    /// Bind fallback to the same app process and request. A password field in
-    /// a different process/context is never a continuation of this attempt.
+    /// The ordinary fallback route stays bound to one process and context.
+    /// Cross-host continuation additionally requires permitsHostHandoff evidence.
     static func isSameFallbackRequest(originalPID: Int32, passwordPID: Int32,
                                       originalBundleID: String, passwordBundleID: String,
                                       originalContext: String, passwordContext: String) -> Bool {
         originalPID == passwordPID && originalBundleID == passwordBundleID
             && originalContext == passwordContext
+    }
+}
+
+extension PromptPolicy {
+    static func requestHeading(in strings: [String]) -> String? {
+        var headings = Set<String>()
+        for string in strings.map(canonical) {
+            for heading in ["privacy & security is trying to modify your system settings.",
+                            "privacy & security is trying to unlock system settings.",
+                            "finder wants to make changes."] where string.contains(heading) {
+                headings.insert(heading)
+            }
+            if let start = string.range(of: "finder wants to move "),
+               let end = string.range(of: " to the trash.", range: start.upperBound..<string.endIndex) {
+                headings.insert(String(string[start.lowerBound..<end.upperBound]))
+            }
+            if let start = string.range(of: "autofill for \""),
+               let end = string[start.upperBound...].firstIndex(of: "\"") {
+                headings.insert(String(string[start.lowerBound...end]))
+            }
+        }
+        return headings.count == 1 ? headings.first : nil
+    }
+
+    /// A replacement authentication host needs independent evidence linking it
+    /// to the original card; shared text alone is insufficient.
+    static func permitsHostHandoff(sameContext: Bool, sameHeading: Bool,
+                                   sameWindow: Bool, matchingFrame: Bool,
+                                   originalBiometricGone: Bool, appleSigned: Bool) -> Bool {
+        sameContext && sameHeading && appleSigned
+            && (sameWindow || (matchingFrame && originalBiometricGone))
     }
 }

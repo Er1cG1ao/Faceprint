@@ -60,7 +60,7 @@ Unlock settings, turn filling off in General, and enable **Scan Touch ID prompts
 | On | Off | Faceprint recognizes at the Touch ID card, selects Use Password and fills; you submit. |
 | On | On | Faceprint recognizes at the Touch ID card, selects Use Password, fills and submits. |
 
-The scan does not click anything until your face matches. The transition uses the explicit Accessibility button action, with no speculative Return. The resulting field must be empty, owned by the same signed Apple process, and match the original request. A changed request, unavailable button, timeout or failed verification stops the flow. If macOS uses a different host during fallback or exposes different wording, use the manual password-entry path. This version supports English Touch ID wording for the existing supported dialog types.
+The scan does not click anything until your face matches. The transition uses the explicit Accessibility button action, with no speculative Return. The resulting field must be empty and match the original request. A replacement signed Apple host is accepted only with an identical request heading and evidence that it is the same dialog (AX window identity, or matching card geometry after the original biometric stage disappears). A changed request, unavailable button, timeout or failed verification stops the flow. If a host change cannot be linked to the original card, or wording is not recognized, use the manual password-entry path and Retry current prompt. This version supports English Touch ID wording for the existing supported dialog types.
 
 Visible supported Touch ID cards can also be discovered before they have keyboard focus. After a face match, Faceprint raises and focuses that card before selecting Use Password. Switching apps during that scan cancels it; multiple simultaneous cards are not chosen automatically.
 
@@ -69,7 +69,7 @@ After a face match the camera stops. Password fallback waits for the same empty 
 ## Supported dialogs
 
 - Privacy & Security system settings password prompts (extension or native authentication-agent host).
-- Finder’s English “wants to move … to the Trash” authorization prompts.
+- Finder’s English “wants to move … to the Trash” and “wants to make changes” authorization prompts (including Undo).
 - Native Passwords AutoFill verification, including AutoFill for Dia. Matching currently depends on English dialog text and the current account.
 
 The app verifies supported Apple processes and dialog context. Arbitrary website password forms, lock-screen unlocking, passkeys, and Apple Pay approval are outside the supported flow.

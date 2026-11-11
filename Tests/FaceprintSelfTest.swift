@@ -141,6 +141,23 @@ enum FaceprintSelfTest {
         let anotherFile = finderCard.map { $0.replacingOccurrences(of: "Keynote", with: "Other File") }
         precondition(PromptPolicy.biometricContext(in: anotherFile, ownerBundleID: "com.apple.SecurityAgent") != finderContext)
         precondition(!PromptPolicy.isSameFallbackRequest(originalPID: 12, passwordPID: 12, originalBundleID: "com.apple.SecurityAgent", passwordBundleID: "com.apple.SecurityAgent", originalContext: finderContext, passwordContext: "finder-trash:other file"))
+        let changesCard = ["Finder wants to make changes.", "Touch ID or enter your password to continue with “Finder”.", "Use Password…", "Cancel"]
+        let changesPassword = ["Finder wants to make changes.", "Enter your password to continue with “Finder”.", "OK", "Cancel"]
+        for owner in ["com.apple.finder", "com.apple.SecurityAgent", "com.apple.LocalAuthentication.UIAgent"] {
+            precondition(PromptPolicy.biometricContext(in: changesCard, ownerBundleID: owner) == "finder-changes")
+            precondition(PromptPolicy.systemDialogContext(in: changesPassword, ownerBundleID: owner) == "finder-changes")
+        }
+        precondition(PromptPolicy.biometricContext(in: changesCard, ownerBundleID: "example.fake") == nil)
+        precondition(PromptPolicy.systemDialogContext(in: changesPassword.map { $0.replacingOccurrences(of: "“Finder”", with: "“Another App”") }, ownerBundleID: "com.apple.SecurityAgent") == nil)
+        precondition(PromptPolicy.requestHeading(in: unlockBiometric) == "privacy & security is trying to unlock system settings.")
+        precondition(PromptPolicy.requestHeading(in: ["Privacy & Security is trying to unlock system settings. Enter your password to continue."]) == PromptPolicy.requestHeading(in: unlockBiometric))
+        precondition(PromptPolicy.requestHeading(in: ["Finder wants to make changes.", "Privacy & Security is trying to unlock system settings."]) == nil)
+        precondition(PromptPolicy.permitsHostHandoff(sameContext: true, sameHeading: true, sameWindow: false, matchingFrame: true, originalBiometricGone: true, appleSigned: true))
+        precondition(PromptPolicy.permitsHostHandoff(sameContext: true, sameHeading: true, sameWindow: true, matchingFrame: false, originalBiometricGone: false, appleSigned: true))
+        for (context, heading, geometry, gone, signed) in [(false,true,true,true,true), (true,false,true,true,true), (true,true,false,true,true), (true,true,true,false,true), (true,true,true,true,false)] {
+            precondition(!PromptPolicy.permitsHostHandoff(sameContext: context, sameHeading: heading, sameWindow: false, matchingFrame: geometry, originalBiometricGone: gone, appleSigned: signed))
+        }
+        print("PASS Finder changes/undo stages, ambiguous headings, and constrained signed-host handoff")
         print("PASS Settings extension/agent hosts, Finder trash context, wrong host/app and changed-file rejection")
         print("PASS Touch ID prompt scope, fallback button labels, own-auth exclusion, and cross-request transition rejection")
         print("PASS native AutoFill context, wrong-account rejection, and session-prompt exclusion")

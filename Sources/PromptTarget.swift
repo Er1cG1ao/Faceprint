@@ -8,8 +8,8 @@ struct PromptTarget {
     let ownerBundleID: String
     let contextID: String
 
-    var confirmationButton: String { contextID == "privacy" ? "the confirmation button" : (contextID.hasPrefix("finder-trash:") ? "Move to Trash" : "OK") }
-    var description: String { contextID == "privacy" ? "Privacy & Security" : (contextID.hasPrefix("finder-trash:") ? "Finder authorization" : "Passwords AutoFill") }
+    var confirmationButton: String { contextID == "privacy" ? "the confirmation button" : "OK" }
+    var description: String { contextID == "privacy" ? "Privacy & Security" : (contextID.hasPrefix("finder-") ? "Finder authorization" : "Passwords AutoFill") }
 
     fileprivate static func attribute(_ element: AXUIElement, _ name: String) -> CFTypeRef? {
         var result: CFTypeRef?
@@ -229,6 +229,60 @@ struct PromptTarget {
     }
 }
 
+private struct PasswordFallbackAnchor {
+    let window: AXUIElement
+    let frame: CGRect?
+    let heading: String?
+
+    init(root: AXUIElement, button: AXUIElement) {
+        window = PromptTarget.elementAttribute(button, kAXWindowAttribute)
+            ?? PromptTarget.elementAttribute(button, kAXTopLevelUIElementAttribute) ?? root
+        frame = Self.frame(of: window) ?? Self.frame(of: root)
+        heading = PromptPolicy.requestHeading(in: PromptTarget.dialogText(root))
+            ?? PromptPolicy.requestHeading(in: PromptTarget.dialogText(window))
+    }
+
+    static func frame(of element: AXUIElement) -> CGRect? {
+        guard let position = PromptTarget.attribute(element, kAXPositionAttribute),
+              let size = PromptTarget.attribute(element, kAXSizeAttribute),
+              CFGetTypeID(position) == AXValueGetTypeID(), CFGetTypeID(size) == AXValueGetTypeID() else { return nil }
+        var point = CGPoint.zero
+        var dimensions = CGSize.zero
+        guard AXValueGetValue(position as! AXValue, .cgPoint, &point),
+              AXValueGetValue(size as! AXValue, .cgSize, &dimensions),
+              dimensions.width > 0, dimensions.height > 0 else { return nil }
+        return CGRect(origin: point, size: dimensions)
+    }
+
+    func canContain(_ element: AXUIElement) -> Bool {
+        if CFEqual(window, element) { return true }
+        guard let frame, let rect = Self.frame(of: element) else { return false }
+        return abs(frame.midX - rect.midX) <= 24 && abs(frame.midY - rect.midY) <= 96
+            && abs(frame.width - rect.width) <= 32 && rect.height / frame.height < 2
+            && frame.height / rect.height < 2
+    }
+
+    func matches(_ candidate: PromptTarget, context: String, originalBiometricGone: Bool) -> Bool {
+        let candidateWindow = PromptTarget.elementAttribute(candidate.field, kAXWindowAttribute)
+            ?? PromptTarget.elementAttribute(candidate.field, kAXTopLevelUIElementAttribute)
+        guard let candidateWindow else { return false }
+        let text = PromptTarget.dialogText(candidateWindow)
+        let candidateHeading = PromptPolicy.requestHeading(in: text)
+        let rect = Self.frame(of: candidateWindow)
+        // Password cards can grow vertically around their original center.
+        let matchingFrame: Bool
+        if let frame, let rect {
+            matchingFrame = abs(frame.midX - rect.midX) <= 24 && abs(frame.midY - rect.midY) <= 96
+                && abs(frame.width - rect.width) <= 32 && rect.height / frame.height < 2
+                && frame.height / rect.height < 2
+        } else { matchingFrame = false }
+        return PromptPolicy.permitsHostHandoff(sameContext: candidate.contextID == context,
+            sameHeading: heading != nil && heading == candidateHeading,
+            sameWindow: CFEqual(window, candidateWindow), matchingFrame: matchingFrame,
+            originalBiometricGone: originalBiometricGone, appleSigned: candidate.verifyAppleSignature())
+    }
+}
+
 /// A visible Touch ID card and its explicit password-fallback control. No
 /// keyboard Return is sent to discover the password stage or confirm a request.
 struct BiometricPromptTarget {
@@ -241,7 +295,7 @@ struct BiometricPromptTarget {
     // Preserve the user's app choice during a scan of a nonfocused card.
     let discoveryFrontmostPID: pid_t?
 
-    var description: String { contextID == "privacy" ? "Privacy & Security Touch ID" : (contextID.hasPrefix("finder-trash:") ? "Finder Touch ID" : "Passwords AutoFill Touch ID") }
+    var description: String { contextID == "privacy" ? "Privacy & Security Touch ID" : (contextID.hasPrefix("finder-") ? "Finder Touch ID" : "Passwords AutoFill Touch ID") }
 
     private static func focused() -> BiometricPromptTarget? {
         guard let focused = PromptTarget.focusedElement(), let bundleID = focused.app.bundleIdentifier,
@@ -401,6 +455,7 @@ struct BiometricPromptTarget {
         guard focusedCard != nil else {
             throw FillError.message("The Touch ID card could not be focused. Select it and retry.")
         }
+        let anchor = PasswordFallbackAnchor(root: root, button: button)
         guard AXUIElementPerformAction(button, kAXPressAction as CFString) == .success else {
             throw FillError.message("Use Password could not be selected. Open the password field manually.")
         }
@@ -411,11 +466,11 @@ struct BiometricPromptTarget {
         var readiness = PasswordFieldReadiness()
         while Date() < deadline {
             try Task.checkCancellation()
-            guard verifyAppleSignature(), let owner = NSRunningApplication(processIdentifier: pid),
-                  !owner.isTerminated else { throw CancellationError() }
+            // The original host may exit after handing the card to another
+            // Apple agent. Every discovered target is independently verified.
             // A newly mounted password card may initially focus its user-name
             // field or no field at all. Find its secure field within this request.
-            if let target = continuationField() {
+            if let target = continuationField(anchor: anchor) {
                 let sameField = lastField.map { CFEqual($0, target.field) } ?? false
                 if !sameField { lastField = target.field }
                 let empty = PromptTarget.attribute(target.field, kAXValueAttribute) as? String == ""
@@ -424,8 +479,13 @@ struct BiometricPromptTarget {
                 }
                 let focused = target.isCurrent(requireEmpty: true)
                 if !focused {
-                    if let active = NSWorkspace.shared.frontmostApplication?.processIdentifier,
-                       active != pid, active != discoveryFrontmostPID, active != transitionFrontmostPID,
+                    let foreground = NSWorkspace.shared.frontmostApplication
+                    let expectedRequester = contextID == "privacy" ? "com.apple.systempreferences"
+                        : (contextID.hasPrefix("finder-") ? "com.apple.finder" : "")
+                    let isExpectedRequester = !expectedRequester.isEmpty && foreground?.bundleIdentifier == expectedRequester
+                        && foreground.map { PromptTarget.verifyAppleSignature(pid: $0.processIdentifier, bundleID: expectedRequester) } == true
+                    if let active = foreground?.processIdentifier, !isExpectedRequester,
+                       active != pid, active != target.pid, active != discoveryFrontmostPID, active != transitionFrontmostPID,
                        active != NSRunningApplication.current.processIdentifier {
                         throw FillError.message("The active app changed during password fallback. No password was entered.")
                     }
@@ -448,27 +508,47 @@ struct BiometricPromptTarget {
         throw FillError.message("The password field did not become ready. Focus it and choose Retry current prompt.")
     }
 
-    /// Discover only same-process, same-context secure fields. Multiple matches
-    /// or a replacement request never receive focus or text.
-    private func continuationField() -> PromptTarget? {
-        let application = AXUIElementCreateApplication(pid)
+    /// Search the original host and supported replacement hosts. Cross-host
+    /// matches require the captured card anchor, not a general process allowlist.
+    private func continuationField(anchor: PasswordFallbackAnchor) -> PromptTarget? {
+        let originalBiometricGone = Self.fallbackButton(in: root) == nil
+            || PromptPolicy.biometricContext(in: PromptTarget.dialogText(root), ownerBundleID: ownerBundleID) != contextID
+        func accepts(_ candidate: PromptTarget) -> Bool {
+            guard candidate.contextID == contextID, candidate.verifyAppleSignature() else { return false }
+            return PromptPolicy.isSameFallbackRequest(originalPID: pid, passwordPID: candidate.pid,
+                originalBundleID: ownerBundleID, passwordBundleID: candidate.ownerBundleID,
+                originalContext: contextID, passwordContext: candidate.contextID)
+                || anchor.matches(candidate, context: contextID, originalBiometricGone: originalBiometricGone)
+        }
+        // An already focused, verified field is authoritative and avoids walking
+        // large unrelated Settings trees. It must still pass the settling gate.
+        if let current = PromptTarget.current(requireEmpty: false), accepts(current) { return current }
         var roots = [root]
-        let windows = PromptTarget.attribute(application, kAXWindowsAttribute) as? [AXUIElement] ?? []
-        roots.append(contentsOf: windows.prefix(12))
-        if let focused = PromptTarget.elementAttribute(application, kAXFocusedWindowAttribute) { roots.append(focused) }
+        for app in NSWorkspace.shared.runningApplications {
+            guard let bundleID = app.bundleIdentifier, PromptPolicy.supportsOwner(bundleID),
+                  app.bundleURL?.path.hasPrefix("/System/") == true else { continue }
+            let application = AXUIElementCreateApplication(app.processIdentifier)
+            let windows = PromptTarget.attribute(application, kAXWindowsAttribute) as? [AXUIElement] ?? []
+            roots.append(contentsOf: windows.prefix(12).filter { anchor.canContain($0) })
+            if let focused = PromptTarget.elementAttribute(application, kAXFocusedWindowAttribute), anchor.canContain(focused) { roots.append(focused) }
+        }
+        if let focused = PromptTarget.focusedElement() {
+            roots.append(PromptTarget.elementAttribute(focused.element, kAXTopLevelUIElementAttribute) ?? focused.element)
+        }
         var matches: [PromptTarget] = []
+        var visitedRoots: [AXUIElement] = []
         for root in roots {
+            guard !visitedRoots.contains(where: { CFEqual($0, root) }) else { continue }
+            visitedRoots.append(root)
             var pending: [(AXUIElement, Int)] = [(root, 0)]
             var inspected = 0
             while let (element, depth) = pending.popLast(), inspected < 240 {
                 inspected += 1
                 guard PromptTarget.attribute(element, "AXHidden") as? Bool != true else { continue }
-                if let candidate = PromptTarget.candidate(element, requireEmpty: false),
-                   PromptPolicy.isSameFallbackRequest(originalPID: pid, passwordPID: candidate.pid,
-                       originalBundleID: ownerBundleID, passwordBundleID: candidate.ownerBundleID,
-                       originalContext: contextID, passwordContext: candidate.contextID),
-                   !matches.contains(where: { CFEqual($0.field, candidate.field) }) {
-                    matches.append(candidate)
+                if let candidate = PromptTarget.candidate(element, requireEmpty: false), candidate.contextID == contextID {
+                    if accepts(candidate), !matches.contains(where: { CFEqual($0.field, candidate.field) }) {
+                        matches.append(candidate)
+                    }
                 }
                 if depth < 10, let children = PromptTarget.attribute(element, kAXChildrenAttribute) as? [AXUIElement] {
                     pending.append(contentsOf: children.prefix(60).map { ($0, depth + 1) })
