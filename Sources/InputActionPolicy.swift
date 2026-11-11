@@ -1,7 +1,11 @@
 import Foundation
 
 enum InputActionPolicy {
-    static func shouldPressReturn(enabled: Bool, testMode: Bool, verified: Bool) -> Bool {
-        enabled && !testMode && verified
+    static func canEnable(sessionUnlocked: Bool, hasFace: Bool, hasPassword: Bool, busy: Bool) -> Bool {
+        sessionUnlocked && hasFace && hasPassword && !busy
+    }
+
+    static func shouldPressReturn(enabled: Bool, verified: Bool) -> Bool {
+        enabled && verified
     }
 }

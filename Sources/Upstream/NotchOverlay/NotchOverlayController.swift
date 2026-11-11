@@ -234,13 +234,6 @@ final class NotchOverlayController {
 
     // MARK: - Onboarding mode (OnboardingController)
 
-    /// A focused, non-authentication preview makes this auxiliary panel visible
-    /// to window-sharing tools. Real password scans stay non-activating.
-    func presentPreview() {
-        present()
-        windowController.setInteractive(true, key: true)
-    }
-
     /// Hands the panel to the onboarding flow — this object only owns visibility and
     /// interactivity while `.onboarding` is active; sizing/content is driven by `controller`.
     func presentOnboarding(_ controller: OnboardingController) {

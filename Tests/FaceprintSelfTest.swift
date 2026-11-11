@@ -3,16 +3,22 @@ import Foundation
 @main
 enum FaceprintSelfTest {
     static func main() throws {
-        let automaticReturnCases: [(Bool, Bool, Bool, Bool)] = [
-            (false, false, false, false), (false, false, true, false),
-            (false, true, false, false), (false, true, true, false),
-            (true, false, false, false), (true, false, true, true),
-            (true, true, false, false), (true, true, true, false)
-        ]
-        for (enabled, testMode, verified, expected) in automaticReturnCases {
-            precondition(InputActionPolicy.shouldPressReturn(enabled: enabled, testMode: testMode, verified: verified) == expected)
+        for unlocked in [false, true] {
+            for face in [false, true] {
+                for password in [false, true] {
+                    for busy in [false, true] {
+                        let expected = unlocked && face && password && !busy
+                        precondition(InputActionPolicy.canEnable(sessionUnlocked: unlocked, hasFace: face, hasPassword: password, busy: busy) == expected)
+                    }
+                }
+            }
         }
-        print("PASS automatic Return requires opt-in, a verified fill, and real-password mode")
+        for enabled in [false, true] {
+            for verified in [false, true] {
+                precondition(InputActionPolicy.shouldPressReturn(enabled: enabled, verified: verified) == (enabled && verified))
+            }
+        }
+        print("PASS filling requires an unlocked session, a face, a password, and idle state; Return requires opt-in and verified input")
 
         let poses: [(EnrollmentPose, Float, Float)] = [
             (.center, 0, 0), (.left, 0.3, 0), (.topLeft, 0.3, -0.22),

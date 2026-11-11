@@ -6,16 +6,14 @@ import Carbon
 
 @MainActor
 final class FillController: ObservableObject {
-    @Published var status = "Choose your camera and click Test camera, then unlock a session."
+    @Published var status = "Unlock your session to set up face-assisted filling."
     @Published var sessionUnlocked = false
     @Published var protectionStatus = "Checking session protection…"
     @Published var promptStatus = "Supports Privacy & Security and native Passwords AutoFill prompts."
     @Published var hasFace = false
     @Published var hasPassword = SecureCredentialManager.hasStoredPassword()
     @Published var busy = false
-    @Published var previewing = false
     @Published var passwordDraft = ""
-    @Published var testMode = true
     @Published var passivePhotoChecks = false
     @Published var islandStyle = GlanceSettings.shared.animationStyle {
         didSet { GlanceSettings.shared.animationStyle = islandStyle }
@@ -45,7 +43,7 @@ final class FillController: ObservableObject {
     private var screenObserver: NSObjectProtocol?
     private var authenticationInProgress = false
 
-    var canEnable: Bool { sessionUnlocked && hasFace && (testMode || hasPassword) && !busy }
+    var canEnable: Bool { InputActionPolicy.canEnable(sessionUnlocked: sessionUnlocked, hasFace: hasFace, hasPassword: hasPassword, busy: busy) }
 
     init() {
         let previous = UserDefaults.standard.persistentDomain(forName: "local.giao.glancefill")
@@ -146,68 +144,7 @@ final class FillController: ObservableObject {
         camera.stop()
         enrollment.dismiss()
         NotchOverlayController.shared.dismissImmediately()
-        previewing = false
         busy = false
-    }
-
-    func testCamera() {
-        guard !busy else { return }
-        enabled = false
-        busy = true
-        generation &+= 1
-        let currentGeneration = generation
-        let deviceID = cameraID
-        status = "Requesting camera access…"
-        operation = Task {
-            do {
-                try await camera.start(deviceID: deviceID)
-                try Task.checkCancellation()
-                previewing = true
-                status = "Camera preview is running. Click Stop camera when ready."
-                let deadline = Date().addingTimeInterval(30)
-                while Date() < deadline {
-                    try Task.checkCancellation()
-                    try await Task.sleep(nanoseconds: 200_000_000)
-                }
-                status = "Camera test finished. Unlock a session to enroll your face."
-            } catch {
-                if !Task.isCancelled { status = error.localizedDescription }
-            }
-            if generation == currentGeneration {
-                camera.stop()
-                previewing = false
-                busy = false
-                operation = nil
-            }
-        }
-    }
-
-    func stopCameraPreview() {
-        cancelOperation()
-        status = "Camera test stopped. Unlock a session to enroll your face."
-    }
-
-    func previewIsland() {
-        guard !busy else { return }
-        busy = true
-        generation &+= 1
-        let currentGeneration = generation
-        status = "Previewing Glance’s Dynamic Island animations…"
-        NotchOverlayController.shared.presentPreview()
-        operation = Task {
-            do {
-                try await Task.sleep(for: .seconds(6))
-                try Task.checkCancellation()
-                NotchOverlayController.shared.finish(success: true)
-                try await Task.sleep(for: .seconds(2.6))
-                try Task.checkCancellation()
-                status = "Dynamic Island preview finished."
-            } catch {}
-            if generation == currentGeneration {
-                busy = false
-                operation = nil
-            }
-        }
     }
 
     private func getRecognizer() async throws -> Recognizer {
@@ -273,7 +210,6 @@ final class FillController: ObservableObject {
         busy = true
         generation &+= 1
         let currentGeneration = generation
-        let useTestMode = testMode
         let usePhotoChecks = passivePhotoChecks
         let useAutomaticReturn = autoSubmit
         let deviceID = cameraID
@@ -326,17 +262,15 @@ final class FillController: ObservableObject {
                     status = "Face recognized. Filling the password field…"
                     guard consecutiveMatches >= 3,
                           Date().timeIntervalSince(matchedSince ?? Date()) >= 0.25 else { continue }
-                    var bytes = useTestMode ? Data("x".utf8) : try SecureCredentialManager.readPassword()
+                    var bytes = try SecureCredentialManager.readPassword()
                     defer { bytes.resetBytes(in: 0..<bytes.count) }
                     let verified = try await target.type(bytes)
                     if verified {
-                        if InputActionPolicy.shouldPressReturn(enabled: useAutomaticReturn, testMode: useTestMode, verified: verified) {
+                        if InputActionPolicy.shouldPressReturn(enabled: useAutomaticReturn, verified: verified) {
                             try target.pressReturn()
                             status = "Password filled and Return pressed."
                         } else {
-                            status = useTestMode
-                                ? "Test character appeared in the field. Click Cancel."
-                                : "Password filled. Review the request and click \(target.confirmationButton)."
+                            status = "Password filled. Review the request and click \(target.confirmationButton)."
                         }
                     } else {
                         status = "Input could not be verified. Check the password field before continuing."
@@ -381,137 +315,6 @@ final class FillController: ObservableObject {
     }
 }
 
-struct SetupView: View {
-    @ObservedObject var controller: FillController
-    @ObservedObject var systemSetup: SystemSetup
-    private let devices = Camera.devices
-
-    var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 15) {
-                HStack {
-                    Image(nsImage: NSApp.applicationIconImage).resizable().frame(width: 48, height: 48)
-                    VStack(alignment: .leading) {
-                        Text("Faceprint").font(.title2.bold())
-                        Text("0.1.1 Beta 2").font(.caption).foregroundStyle(.secondary)
-                        Text("Face-assisted filling for system prompts and AutoFill").foregroundStyle(.secondary)
-                    }
-                    Spacer()
-                }
-                Text(controller.status).fixedSize(horizontal: false, vertical: true)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(12).background(.quaternary, in: RoundedRectangle(cornerRadius: 10))
-                HStack {
-                    Button(controller.sessionUnlocked ? "Session unlocked" : "Unlock session", action: controller.unlockSession)
-                        .disabled(controller.sessionUnlocked || controller.busy)
-                    Button("Lock session", action: controller.lockSession).disabled(!controller.sessionUnlocked)
-                    Spacer()
-                    Button("Accessibility access", action: systemSetup.requestAccessibility)
-                }
-                Text("Unlock session authorizes access to your encrypted face and password for this session. It locks again on screen lock, sleep, or 30 minutes without use.")
-                    .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
-                Text(controller.protectionStatus).font(.caption).foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-                GroupBox("Startup & Permissions") {
-                    VStack(alignment: .leading, spacing: 8) {
-                        Toggle("Launch Faceprint at login", isOn: Binding(
-                            get: { systemSetup.launchAtLogin },
-                            set: { systemSetup.setLaunchAtLogin($0) }
-                        ))
-                        Text(systemSetup.loginStatus).font(.caption).foregroundStyle(.secondary)
-                        if systemSetup.loginNeedsApproval {
-                            Button("Open Login Items", action: systemSetup.openLoginSettings)
-                        }
-                        Divider()
-                        HStack {
-                            Label(systemSetup.cameraStatus, systemImage: systemSetup.cameraGranted ? "checkmark.circle.fill" : "camera")
-                                .font(.caption)
-                            Spacer()
-                            if !systemSetup.cameraGranted {
-                                Button("Allow Camera") { Task { await systemSetup.requestCamera() } }
-                                    .disabled(systemSetup.requestingPermissions)
-                            }
-                        }
-                        HStack {
-                            Label(systemSetup.accessibilityGranted ? "Accessibility allowed" : "Accessibility access needed",
-                                  systemImage: systemSetup.accessibilityGranted ? "checkmark.circle.fill" : "accessibility")
-                                .font(.caption)
-                            Spacer()
-                            if !systemSetup.accessibilityGranted {
-                                Button("Allow Accessibility", action: systemSetup.requestAccessibility)
-                            }
-                        }
-                        Text("Camera recognizes your face locally. Accessibility detects supported password prompts and types into them.")
-                            .font(.caption).foregroundStyle(.secondary)
-                    }.padding(4).frame(maxWidth: .infinity, alignment: .leading)
-                }
-                Picker("Camera", selection: $controller.cameraID) {
-                    Text("System default").tag("")
-                    ForEach(devices, id: \.uniqueID) { device in Text(device.localizedName).tag(device.uniqueID) }
-                }.disabled(controller.busy)
-                HStack {
-                    Button(controller.previewing ? "Stop camera" : "Test camera") {
-                        if controller.previewing { controller.stopCameraPreview() }
-                        else { controller.testCamera() }
-                    }.disabled(controller.busy && !controller.previewing)
-                    Button("Preview Dynamic Island", action: controller.previewIsland).disabled(controller.busy)
-                }
-                CameraPreviewView(camera: controller.camera)
-                    .frame(height: 190).background(.black).clipShape(RoundedRectangle(cornerRadius: 12))
-                HStack {
-                    Button(controller.hasFace ? "Enroll face again" : "Enroll my face", action: controller.enroll)
-                        .disabled(!controller.sessionUnlocked || controller.busy)
-                    Text(controller.hasFace ? "Face saved" : "Nine guided views, with Glance’s capture ring.")
-                        .font(.caption).foregroundStyle(.secondary)
-                    Spacer()
-                    if controller.busy { ProgressView().controlSize(.small) }
-                }
-                Divider()
-                HStack {
-                    SecureField("Your Mac login password", text: $controller.passwordDraft)
-                        .disabled(!controller.sessionUnlocked || controller.busy)
-                    Button("Save password") {
-                        do {
-                            try controller.savePassword(controller.passwordDraft)
-                            controller.passwordDraft = ""
-                        } catch { controller.status = error.localizedDescription }
-                    }.disabled(controller.passwordDraft.isEmpty || !controller.sessionUnlocked || controller.busy)
-                }
-                Text(controller.hasPassword ? "Password encrypted and saved." : "You can try test mode before saving a password.")
-                    .font(.caption).foregroundStyle(.secondary)
-                Picker("Dynamic Island", selection: $controller.islandStyle) {
-                    Text("Original").tag(UnlockAnimationStyle.original)
-                    Text("Minimal").tag(UnlockAnimationStyle.minimal)
-                }.disabled(controller.busy || controller.enabled)
-                Toggle("Test mode — fill a single x after recognizing me", isOn: $controller.testMode)
-                    .disabled(controller.busy || controller.enabled)
-                Toggle("Passive photo checks (Glance Light)", isOn: $controller.passivePhotoChecks)
-                    .disabled(controller.busy || controller.enabled)
-                Toggle("Press Return automatically after filling", isOn: $controller.autoSubmit)
-                    .disabled(controller.busy || controller.enabled)
-                Text("Automatic Return runs after a verified password fill. Test mode always leaves confirmation to you.")
-                    .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
-                Toggle("Enable face-assisted filling", isOn: $controller.enabled)
-                    .disabled(!controller.enabled && !controller.canEnable)
-                Text(controller.promptStatus).font(.caption).foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-                Text(controller.autoSubmit
-                     ? "Open the password entry field yourself. After a verified fill, Faceprint presses Return to confirm."
-                     : "Click Use Password… yourself and focus the empty system password field. After filling, review the request and click Modify Settings or OK yourself.")
-                    .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
-                Text("Face matching runs automatically, with optional passive photo checks. Sessions lock after 30 minutes without secret use, on screen lock or sleep. With photo checks off, photos or video can also be accepted.")
-                    .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
-                HStack {
-                    Button("Remove saved data…", action: controller.removeSavedData).disabled(controller.busy)
-                    Spacer()
-                    Link("Built on Glance · Jonathan Zhou · MIT", destination: URL(string: "https://github.com/jonnyoo/glance")!)
-                        .font(.caption2)
-                }
-            }.padding(22)
-        }.frame(width: 560, height: min(800, (NSScreen.main?.visibleFrame.height ?? 900) - 80))
-    }
-}
-
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
     private let controller = FillController()
@@ -545,7 +348,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let host = NSHostingController(rootView: SetupView(controller: controller, systemSetup: systemSetup))
         window = NSWindow(contentViewController: host)
         window.title = "Faceprint"
-        window.styleMask = [.titled, .closable, .miniaturizable]
+        window.styleMask = [.titled, .closable, .miniaturizable, .fullSizeContentView]
+        window.titleVisibility = .hidden
+        window.titlebarAppearsTransparent = true
+        window.isMovableByWindowBackground = true
+        window.backgroundColor = .windowBackgroundColor
         window.isReleasedWhenClosed = false
         window.center()
         controller.onAuthenticationFinished = { [weak self] in

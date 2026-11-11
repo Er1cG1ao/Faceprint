@@ -4,19 +4,21 @@
 
 ## 首次设置
 
-从 [Releases](https://github.com/Er1cG1ao/faceprint/releases) 下载 ZIP，退出旧版，解压并将 Faceprint 放入 Applications。发布的 Beta 需要 Apple Silicon 和 macOS 15+，使用临时签名，尚未经过 Apple 公证。
+从 [Releases](https://github.com/Er1cG1ao/faceprint/releases) 下载 ZIP，退出旧版，解压并将 Faceprint 放入 Applications。软件需要 Apple Silicon 和 macOS 15+，使用临时签名，尚未经过 Apple 公证。
 
-首次启动会申请摄像头权限，并提示开启辅助功能权限。在 **Startup & Permissions** 中查看状态：摄像头用于本地识别，辅助功能用于读取支持的系统弹窗并输入密码。如果权限被拒绝，使用对应按钮前往系统设置授权，再返回 Faceprint 刷新状态。
+首次启动会申请摄像头权限，并提示开启辅助功能权限。在 **Camera** 页查看权限状态：摄像头用于本地识别，辅助功能用于读取支持的系统弹窗并输入密码。如果权限被拒绝，使用对应按钮前往系统设置授权，再返回 Faceprint 刷新状态。
 
-点击 **Unlock session** 并完成 macOS 身份验证。选择摄像头，可先用 **Test camera** 检查画面，**Stop camera** 结束预览。点击 **Enroll my face**，按照圆环完成九方向录入，轻缓转头并保持每个方向；每个方向采集两个样本。之后在软件中保存 Mac 登录密码。
+点击 **Unlock session** 并完成 macOS 身份验证。在 **Camera** 选择摄像头，在 **Your Face** 点击 **Enroll my face**，按照圆环完成九方向录入，轻缓转头并保持每个方向；每个方向采集两个样本。之后在 **Password** 保存 Mac 登录密码。摄像头预览仅在录脸时显示。
 
-## 先测试一个字符
+## 第一次填写密码
 
-1. 保持 **Test mode — fill a single x after recognizing me** 开启。
-2. 打开 **Enable face-assisted filling**。
-3. 打开支持的系统密码弹窗；必要时先点 **Use Password…**，让空密码框获得焦点。
-4. 看向摄像头。识别成功后会填入一个 `x`，确认出现一个密码圆点，然后点击 Cancel。
-5. 关闭填写，取消 Test mode，再重新启用填写，即可使用保存的密码。
+1. 完成设置：解锁会话、录入人脸，并保存 Mac 登录密码。
+2. 在 **Recognition** 保持 **Press Return after filling** 关闭。
+3. 在 **General** 开启 **Enable face-assisted filling**。
+4. 打开支持的系统密码弹窗，必要时先点 **Use Password…**，让空密码框获得焦点。
+5. 看向摄像头。填入后检查请求与密码框，再自行确认或取消。
+
+填写始终使用保存的真实密码。设置中已移除测试字符模式、摄像头预览以及摄像头和灵动岛测试入口。
 
 打开密码输入界面的步骤由你手动完成。Faceprint 对同一个输入框只尝试一次；失败后可在菜单栏选择 **Retry current prompt**，或在失败灵动岛仍显示时悬停鼠标以重试。
 
@@ -28,7 +30,7 @@
 
 关闭设置窗口后，Faceprint 继续在菜单栏运行；点击菜单中的 **Open Faceprint…** 可重新打开。选择 **Quit Faceprint** 才会退出并锁定数据。
 
-在 **Startup & Permissions** 中开启 **Launch Faceprint at login** 可注册 macOS 登录项，请先将应用放入 Applications。如果系统需要批准，点击 **Open Login Items**；关闭开关则取消注册。登录时启动不会自动解锁保存的数据，也不会自动启用填写。
+在 **General** 中开启 **Launch at login** 可注册 macOS 登录项，请先将应用放入 Applications。如果系统需要批准，点击 **Open Login Items**；关闭开关则取消注册。登录时启动不会自动解锁保存的数据，也不会自动启用填写。
 
 ## 识别与确认选项
 
@@ -36,10 +38,9 @@
 
 | 设置 | 行为 |
 | --- | --- |
-| Dynamic Island：Original / Minimal | 选择灵动岛外观，可点击 Preview Dynamic Island 预览。 |
-| Test mode | 只输入 `x`，不会自动回车；每次启动应用时默认开启。 |
+| Dynamic Island：Original / Minimal | 在 General 中选择灵动岛外观。 |
 | Passive photo checks (Glance Light) | 可选的明显屏幕反光、脸周围设备边框检查，不要求主动眨眼或转头；启动时默认关闭。 |
-| Press Return automatically after filling | 默认关闭。开启后，只有真实密码填入验证成功，且再次检查目标后才发送回车。 |
+| Press Return after filling | 默认关闭。开启后，只有真实密码填入验证成功，且再次检查目标后才发送回车。 |
 
 关闭自动回车时，请自行检查请求并点击 **Modify Settings** 或 **OK**。开启后，软件可能直接确认当前具有管理员权限的操作。输入长度验证只确认填入情况；密码是否正确由系统判断。
 
@@ -50,14 +51,14 @@
 - “隐私与安全性”的系统设置密码弹窗。
 - 原生“密码”AutoFill 身份验证，包括 Dia 的 AutoFill；目前依赖英文弹窗文字，并检查当前账户。
 
-软件检查受支持的 Apple 进程与弹窗上下文。任意网页密码框、锁屏解锁、通行密钥和 Apple Pay 授权不在本 Beta 的支持流程内。
+软件检查受支持的 Apple 进程与弹窗上下文。任意网页密码框、锁屏解锁、通行密钥和 Apple Pay 授权不在支持流程内。
 
 ## 常见问题
 
 | 现象 | 检查方法 |
 | --- | --- |
-| 摄像头没有画面 | 检查摄像头权限，选择正确设备，运行 Test camera。 |
-| 录入中断 | 保持稳定光线和适当距离，轻缓转头。超时后重新开始。Beta 2 针对摄像头启动崩溃进行了修复；若仍崩溃，请提供版本与步骤。 |
+| 录脸时摄像头没有画面 | 在 Camera 页检查摄像头权限与所选设备；设置页本身没有实时预览。 |
+| 录入中断 | 保持稳定光线和适当距离，轻缓转头。超时后重新开始。如遇崩溃，请提供版本与步骤。 |
 | 没有触发识别 | 检查会话已解锁、人脸已录入、辅助功能已允许、填写已启用，并让支持的空密码框获得焦点。 |
 | Dia 有效，其他弹窗无效 | 确认是否属于支持范围、是否使用英文文字；反馈时注明弹窗类型并移除私人信息。 |
 | 失败后不重试 | 使用 Retry current prompt，或悬停失败灵动岛。 |

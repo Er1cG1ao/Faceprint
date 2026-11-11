@@ -24,12 +24,13 @@ bash test.sh
 
 | Location | Responsibility |
 | --- | --- |
-| `Sources/App.swift` | Menu bar, settings, session state, enrollment and filling coordination. |
+| `Sources/App.swift` | Menu bar, session state, enrollment and filling coordination. |
+| `Sources/SettingsView.swift` | Six-page settings, translucent groups and floating tab navigation. |
 | `Sources/Camera.swift` | Serialized capture-session operations and the latest in-memory frame. |
 | `Sources/GuidedEnrollment.swift` | Nine-direction, 18-sample capture flow. |
 | `Sources/Recognition.swift` | ArcFace recognition and encrypted face-template storage. |
 | `Sources/PromptPolicy.swift`, `Sources/PromptTarget.swift` | Supported Apple dialog context, target revalidation, text input and Return. |
-| `Sources/InputActionPolicy.swift` | Auto-Return guard: opt-in, real-password mode, verified fill. |
+| `Sources/InputActionPolicy.swift` | Filling prerequisites and auto-Return guard: opt-in and verified fill. |
 | `Sources/SecureCredentialManager.swift` | Secure Enclave session key and encrypted vault. |
 | `Sources/SystemSetup.swift` | macOS permissions and Login Items registration/status. |
 | `Sources/Upstream/` | Glance code and adaptations, including enrollment and Dynamic Island views. |
@@ -41,9 +42,9 @@ Upstream baseline: Glance revision `b97f521397ec1197ba17768ba797cae1e628848d`. P
 
 `bash test.sh` runs self-tests for automatic Return policy, nine-pose order and capture bands, template compatibility, Unicode chunking, and supported AutoFill context. `bash build.sh` verifies compilation. These tests do not authenticate a live system dialog or establish face-recognition security.
 
-Before a release, manually check camera start/stop, enrollment start/cancel/retry, session authentication focus, permission states, and Login Items behavior from an installed app. Test filling with `x` before a real password. Verify the real-password and optional Return paths only against a request you intend to approve. Record untested behavior in the release notes.
+Before a release, manually check camera start/stop, enrollment start/cancel/retry, session authentication focus, permission states, and Login Items behavior from an installed app. Keep automatic Return off for the first live fill and review the field before confirming. Verify optional Return only against a request you intend to approve. Record untested behavior in the release notes.
 
-## Package a beta
+## Package a release
 
 Stage only the built app, verify its signature, then archive it:
 
@@ -57,7 +58,7 @@ unzip -t Faceprint-macos-arm64.zip
 shasum -a 256 Faceprint-macos-arm64.zip
 ```
 
-Publish an explicitly labeled pre-release with app version, architecture, macOS requirement, signing status, known limitations, and upstream/model notices. Compare the uploaded asset's SHA-256 with the local archive. Do not package build caches, private logs, face templates, passwords, or vault files.
+Publish a release with app version, architecture, macOS requirement, signing status, known limitations, and upstream/model notices. Compare the uploaded asset's SHA-256 with the local archive. Do not package build caches, private logs, face templates, passwords, or vault files.
 
 ## Data compatibility
 

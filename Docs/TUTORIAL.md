@@ -4,19 +4,21 @@
 
 ## Set up
 
-Download the app ZIP from [Releases](https://github.com/Er1cG1ao/faceprint/releases), quit any older instance, extract it, and move Faceprint into Applications. The distributed beta requires Apple Silicon and macOS 15+. It is ad hoc signed and not Apple-notarized.
+Download the app ZIP from [Releases](https://github.com/Er1cG1ao/faceprint/releases), quit any older instance, extract it, and move Faceprint into Applications. The app requires Apple Silicon and macOS 15+. It is ad hoc signed and not Apple-notarized.
 
-On first launch, Faceprint requests Camera access and prompts for Accessibility access. Under **Startup & Permissions**, check both statuses. Camera is used for local recognition; Accessibility is used to inspect supported system dialogs and type into their password fields. If access is blocked, use the permission buttons and allow Faceprint in System Settings. Return to Faceprint to refresh the status.
+On first launch, Faceprint requests Camera access and prompts for Accessibility access. On the **Camera** page, check both statuses. Camera is used for local recognition; Accessibility is used to inspect supported system dialogs and type into their password fields. If access is blocked, use the permission buttons and allow Faceprint in System Settings. Return to Faceprint to refresh the status.
 
-Click **Unlock session** and complete the macOS authentication request. Select your camera and use **Test camera** to check it; **Stop camera** ends the preview. Click **Enroll my face** and follow the nine-direction ring. Move gently and hold each position. The guide captures two samples per direction. Save your Mac login password in the app after enrollment.
+Click **Unlock session** and complete the macOS authentication request. Select your device on **Camera**. On **Your Face**, click **Enroll my face** and follow the nine-direction ring. Move gently and hold each position. The guide captures two samples per direction. Save your Mac login password on **Password** after enrollment. The camera preview appears only during enrollment.
 
-## Try a single character first
+## First password fill
 
-1. Leave **Test mode — fill a single x after recognizing me** on.
-2. Enable **face-assisted filling**.
-3. Open a supported system password dialog. Select **Use Password…** if necessary, then focus the empty password field.
-4. Look at the camera. A successful recognition fills one `x`; verify one masked dot, then click Cancel.
-5. Disable filling, turn Test mode off, then enable filling again to use the saved password.
+1. Complete setup: unlock the session, enroll your face, and save your Mac login password.
+2. In **Recognition**, leave **Press Return after filling** off for the first use.
+3. In **General**, turn on **Enable face-assisted filling**.
+4. Open a supported system password dialog. Select **Use Password…** if necessary, then focus the empty password field.
+5. Look at the camera. Once the password is filled, review the dialog and confirm or cancel it yourself.
+
+Filling always uses your saved password. There is no test-character mode or camera/island preview control in Settings.
 
 Faceprint leaves each prompt's password-entry step to you. It attempts a given field once. To retry after a failure, use **Retry current prompt** in the menu bar, or hover over the failure island while it remains visible.
 
@@ -28,7 +30,7 @@ The session locks on screen lock, sleep, user-session switch, quit, or 30 minute
 
 Closing Settings keeps the menu bar app running. Choose **Open Faceprint…** from its menu to return. **Quit Faceprint** stops the app and locks its data.
 
-Under **Startup & Permissions**, turn on **Launch Faceprint at login** to register it with macOS Login Items. Install it in Applications first. If approval is needed, click **Open Login Items**. Turn the switch off to unregister it. Launching at login does not unlock saved data or enable filling automatically.
+On **General**, turn on **Launch at login** to register it with macOS Login Items. Install it in Applications first. If approval is needed, click **Open Login Items**. Turn the switch off to unregister it. Launching at login does not unlock saved data or enable filling automatically.
 
 ## Recognition and confirmation settings
 
@@ -36,10 +38,9 @@ Change these settings with filling disabled:
 
 | Setting | Behavior |
 | --- | --- |
-| Dynamic Island: Original / Minimal | Selects the visual style. Use Preview Dynamic Island to see it. |
-| Test mode | Types only `x`; never presses Return. Enabled on each app launch. |
+| Dynamic Island: Original / Minimal | Selects the visual style under General. |
 | Passive photo checks (Glance Light) | Optional checks for obvious screen glare or a device around the face. No required blink or head turn. Defaults off on launch. |
-| Press Return automatically after filling | Defaults off. When enabled, rechecks the target and sends Return only after verifying a real-password fill. |
+| Press Return after filling | Defaults off. When enabled, rechecks the target and sends Return only after verifying a real-password fill. |
 
 With automatic Return off, review the dialog and click **Modify Settings** or **OK** yourself. With it on, filling can also approve the current privileged request. Input-length verification does not establish that the password is correct; the system dialog decides that.
 
@@ -50,14 +51,14 @@ Photo checks can reject real users and cannot reliably stop replay attacks. Ordi
 - Privacy & Security system settings password prompts.
 - Native Passwords AutoFill verification, including AutoFill for Dia. Matching currently depends on English dialog text and the current account.
 
-The app verifies supported Apple processes and dialog context. Arbitrary website password forms, lock-screen unlocking, passkeys, and Apple Pay approval are outside this beta's supported flow.
+The app verifies supported Apple processes and dialog context. Arbitrary website password forms, lock-screen unlocking, passkeys, and Apple Pay approval are outside the supported flow.
 
 ## Troubleshooting
 
 | Symptom | What to check |
 | --- | --- |
-| No camera image | Check Camera permission, select the intended device, and run Test camera. |
-| Enrollment stops | Use steady lighting, keep your face close enough, and turn gently. Restart enrollment after a timeout. Beta 2 addresses the camera-start crash; report any remaining crash with its version and steps. |
+| No image during enrollment | Check Camera permission and the selected device on Camera. Settings has no live preview. |
+| Enrollment stops | Use steady lighting, keep your face close enough, and turn gently. Restart enrollment after a timeout. Report any crash with its version and steps. |
 | Nothing triggers | Unlock the session, enroll a face, check Accessibility permission, enable filling, and focus an empty supported system password field. |
 | Dia works but another prompt does not | Check whether the prompt is supported and in English. Include the dialog type in a bug report with private details removed. |
 | Failed attempt will not retry | Choose Retry current prompt or use the failure-island hover action. |

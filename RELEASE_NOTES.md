@@ -1,3 +1,21 @@
+# Faceprint 1.0.0
+
+First stable release.
+
+- Redesign Settings around Glance's translucent groups, compact header and floating pill navigation: General, Your Face, Password, Camera, Recognition, and About.
+- Remove the Settings camera preview, test mode, Test camera, and Preview Dynamic Island controls. The nine-direction enrollment preview remains available during enrollment.
+- Require an unlocked session, an enrolled face and a saved password before enabling filling. Recognition now always fills the saved password.
+- Retain Original and Minimal island styles, optional automatic Return, local encrypted storage, launch at login and first-launch permission requests.
+- Preserve existing face templates, passwords and preferences.
+
+Apple Silicon, macOS 15+. Ad-hoc signed; not Apple-notarized. Ordinary webcam recognition can accept photos or replayed video. Native Passwords AutoFill matching currently relies on English dialog text.
+
+Validation: build, automated prerequisite/Return policy tests, enrollment/template/Unicode/context self-tests, signature and ZIP checks. Live enrollment, settings navigation and post-authentication focus behavior have not been reverified for this release.
+
+Built on [Glance by Jonathan Zhou](https://github.com/jonnyoo/glance), with its original MIT notice preserved. InsightFace pretrained weights retain separate non-commercial research terms. [Third-party notices](https://github.com/Er1cG1ao/faceprint/blob/main/THIRD_PARTY_NOTICES.md)
+
+---
+
 # Faceprint 0.1.1-beta.2
 
 - Fix the enrollment startup crash: camera previews now share captured frames instead of attaching preview layers while the capture session starts.

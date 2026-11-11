@@ -1,7 +1,7 @@
 #!/bin/bash
 set -euo pipefail
 cd "$(dirname "$0")"
-app="$PWD/Faceprint.app"
+app="${FACEPRINT_OUTPUT_APP:-$PWD/Faceprint.app}"
 if [[ ! -d Resources/ArcFace.mlmodelc ]]; then
     bash setup-resources.sh
 fi
