@@ -1,3 +1,13 @@
+# Faceprint 1.1.2 — test build
+
+- Recognize Settings authorization when hosted by System Settings, SecurityAgent or LocalAuthentication agents, alongside the Privacy & Security extension.
+- Add the English Finder “wants to move … to the Trash” Touch ID and password flow. Keep the exact operation heading bound across the transition; unrelated requests and changed file operations are rejected.
+- Resolve the actual AX fallback-button owner for XPC-hosted cards instead of assuming it is the application that exposes the window. Deduplicate the same card exposed by several hosts and inspect AXFocusedWindow when AXWindows omits it.
+- Use HID input for supported Settings/Finder system authorization, retaining direct process input for the working Passwords AutoFill path.
+- Show the focused system AX owner/role when no supported request matches; no password values are included.
+
+Validation: automated host/context, Finder request and exclusion regressions, existing self-tests, build, signature and ZIP verification. Live system-window inspection was unavailable in this session. Settings/Finder triggering and actual password filling remain to be verified on the user's Mac. Existing user options, vault and face data are unchanged.
+
 # Faceprint 1.1.1
 
 - Recognize Privacy & Security’s “unlock system settings” Touch ID wording as well as “modify your system settings”.

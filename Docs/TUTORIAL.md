@@ -66,7 +66,8 @@ Visible supported Touch ID cards can also be discovered before they have keyboar
 
 ## Supported dialogs
 
-- Privacy & Security system settings password prompts.
+- Privacy & Security system settings password prompts (extension or native authentication-agent host).
+- Finder’s English “wants to move … to the Trash” authorization prompts.
 - Native Passwords AutoFill verification, including AutoFill for Dia. Matching currently depends on English dialog text and the current account.
 
 The app verifies supported Apple processes and dialog context. Arbitrary website password forms, lock-screen unlocking, passkeys, and Apple Pay approval are outside the supported flow.

@@ -100,6 +100,26 @@ enum FaceprintSelfTest {
         for (pid, bundle, context) in [(Int32(13), "apple", "privacy"), (Int32(12), "other", "privacy"), (Int32(12), "apple", "autofill:other")] {
             precondition(!PromptPolicy.isSameFallbackRequest(originalPID: 12, passwordPID: pid, originalBundleID: "apple", passwordBundleID: bundle, originalContext: "privacy", passwordContext: context))
         }
+        for owner in ["com.apple.systempreferences", "com.apple.SecurityAgent", "com.apple.LocalAuthentication.UIAgent", "com.apple.LocalAuthenticationRemoteService"] {
+            precondition(PromptPolicy.biometricContext(in: unlockBiometric, ownerBundleID: owner) == "privacy")
+            let passwordStage = unlockBiometric.filter { !$0.contains("Touch ID") && $0 != "Use Password…" } + ["Enter your password to continue with Privacy & Security."]
+            precondition(PromptPolicy.systemDialogContext(in: passwordStage, ownerBundleID: owner) == "privacy")
+        }
+        let finderCard = ["Finder wants to move “Keynote” to the Trash.",
+                          "Touch ID or enter your password to continue with “Finder”.", "Use Password…", "Cancel"]
+        let finderContext = "finder-trash:finder wants to move \"keynote\" to the trash."
+        for owner in ["com.apple.finder", "com.apple.SecurityAgent", "com.apple.LocalAuthentication.UIAgent"] {
+            precondition(PromptPolicy.biometricContext(in: finderCard, ownerBundleID: owner) == finderContext)
+            let passwordCard = [finderCard[0], "Enter your password to continue with “Finder”.", "Move to Trash", "Cancel"]
+            precondition(PromptPolicy.systemDialogContext(in: passwordCard, ownerBundleID: owner) == finderContext)
+        }
+        precondition(PromptPolicy.biometricContext(in: finderCard, ownerBundleID: "example.fake") == nil)
+        precondition(PromptPolicy.biometricContext(in: finderCard, ownerBundleID: PromptPolicy.privacyBundleID) == nil)
+        precondition(PromptPolicy.biometricContext(in: finderCard.map { $0.replacingOccurrences(of: "Finder", with: "Another App") }, ownerBundleID: "com.apple.SecurityAgent") == nil)
+        let anotherFile = finderCard.map { $0.replacingOccurrences(of: "Keynote", with: "Other File") }
+        precondition(PromptPolicy.biometricContext(in: anotherFile, ownerBundleID: "com.apple.SecurityAgent") != finderContext)
+        precondition(!PromptPolicy.isSameFallbackRequest(originalPID: 12, passwordPID: 12, originalBundleID: "com.apple.SecurityAgent", passwordBundleID: "com.apple.SecurityAgent", originalContext: finderContext, passwordContext: "finder-trash:other file"))
+        print("PASS Settings extension/agent hosts, Finder trash context, wrong host/app and changed-file rejection")
         print("PASS Touch ID prompt scope, fallback button labels, own-auth exclusion, and cross-request transition rejection")
         print("PASS native AutoFill context, wrong-account rejection, and session-prompt exclusion")
     }

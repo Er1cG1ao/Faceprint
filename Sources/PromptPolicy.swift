@@ -8,6 +8,42 @@ enum PromptPolicy {
         "com.apple.LocalAuthenticationRemoteService"
     ]
 
+    static let authenticationBundleIDs: Set<String> = [
+        "com.apple.SecurityAgent", "com.apple.securityagent",
+        "com.apple.LocalAuthentication.UIAgent", "com.apple.LocalAuthenticationRemoteService"
+    ]
+    static func supportsOwner(_ bundleID: String) -> Bool {
+        bundleID == privacyBundleID || bundleID == "com.apple.systempreferences"
+            || bundleID == "com.apple.finder" || autofillBundleIDs.contains(bundleID)
+            || authenticationBundleIDs.contains(bundleID)
+    }
+
+    /// Shared context between biometric and password stages. Host identity is
+    /// independently verified with Apple's code signature before any action.
+    static func systemDialogContext(in strings: [String], ownerBundleID: String) -> String? {
+        let normalized = strings.map(canonical)
+        let text = normalized.joined(separator: " ")
+        guard !text.contains("faceprint"), normalized.contains("cancel") else { return nil }
+        if ownerBundleID == privacyBundleID || ownerBundleID == "com.apple.systempreferences"
+            || authenticationBundleIDs.contains(ownerBundleID) {
+            if text.contains("privacy & security"),
+               text.contains("to continue with privacy & security"),
+               text.contains("modify your system settings") || text.contains("unlock system settings") {
+                return "privacy"
+            }
+        }
+        if ownerBundleID == "com.apple.finder" || authenticationBundleIDs.contains(ownerBundleID) {
+            guard text.contains("to continue with \"finder\""),
+                  let heading = normalized.first(where: {
+                      $0.hasPrefix("finder wants to move ") && $0.hasSuffix(" to the trash.")
+                  }) else { return nil }
+            // Include the exact request heading: another file operation cannot
+            // be mistaken for the continuation of the enrolled-face scan.
+            return "finder-trash:" + heading
+        }
+        return nil
+    }
+
     static func canonical(_ text: String) -> String {
         text.replacingOccurrences(of: "“", with: "\"")
             .replacingOccurrences(of: "”", with: "\"")
@@ -44,11 +80,7 @@ extension PromptPolicy {
         let text = normalized.joined(separator: " ")
         guard normalized.contains(where: isPasswordFallbackButton), normalized.contains("cancel"),
               text.contains("touch id"), !text.contains("faceprint") else { return nil }
-        if ownerBundleID == privacyBundleID {
-            guard text.contains("privacy & security"),
-                  (text.contains("modify your system settings") || text.contains("unlock system settings")) else { return nil }
-            return "privacy"
-        }
+        if let context = systemDialogContext(in: strings, ownerBundleID: ownerBundleID) { return context }
         guard autofillBundleIDs.contains(ownerBundleID), text.contains("passwords"),
               let start = text.range(of: "autofill for \"") else { return nil }
         let suffix = text[start.upperBound...]
