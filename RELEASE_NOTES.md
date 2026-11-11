@@ -1,3 +1,19 @@
+# Faceprint 1.0.1
+
+- Separate the settings edit lock from protected autofill data. Settings start locked; enabled autofill continues when settings are locked or closed.
+- Require fresh macOS authentication to edit all options, enroll a new face, update the password, remove saved data or change launch at login. Late authentication results cannot reopen settings after locking.
+- Remember the filling and photo-check choices. Resume enabled autofill after launch through the existing hardware-protected data authentication. Add Resume autofill for cancelled or expired data sessions.
+- Keep data-key clearing on screen lock, sleep, user-session switch, quit and 30-minute inactivity; do not prompt while the workstation is locked or asleep. Settings relock after 5 minutes without a settings change.
+- Use the project owner's rounded Icon Composer export in the app icon and About page.
+
+Existing saved data remains compatible. Opening protected data still requires macOS user-presence authentication after launch or a data-session lock; locking settings alone does not discard that key.
+
+Validation includes default-locked state, stale-authentication rejection, edit-policy checks, autofill independence, existing self-tests, build/signature and ZIP checks. Live system authentication, screen-lock/wake transitions and real-password filling still require user verification.
+
+Apple Silicon, macOS 15+. Ad-hoc signed and not Apple-notarized. Built on [Glance by Jonathan Zhou](https://github.com/jonnyoo/glance), MIT; InsightFace weights retain separate non-commercial research terms. [Third-party notices](THIRD_PARTY_NOTICES.md)
+
+---
+
 # Faceprint 1.0.0
 
 First stable release.

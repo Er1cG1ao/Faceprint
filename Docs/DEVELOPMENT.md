@@ -24,13 +24,13 @@ bash test.sh
 
 | Location | Responsibility |
 | --- | --- |
-| `Sources/App.swift` | Menu bar, session state, enrollment and filling coordination. |
+| `Sources/App.swift` | Menu bar, independent settings/data-session state, enrollment and filling coordination. |
 | `Sources/SettingsView.swift` | Six-page settings, translucent groups and floating tab navigation. |
 | `Sources/Camera.swift` | Serialized capture-session operations and the latest in-memory frame. |
 | `Sources/GuidedEnrollment.swift` | Nine-direction, 18-sample capture flow. |
 | `Sources/Recognition.swift` | ArcFace recognition and encrypted face-template storage. |
 | `Sources/PromptPolicy.swift`, `Sources/PromptTarget.swift` | Supported Apple dialog context, target revalidation, text input and Return. |
-| `Sources/InputActionPolicy.swift` | Filling prerequisites and auto-Return guard: opt-in and verified fill. |
+| `Sources/InputActionPolicy.swift` | Settings authorization tickets, filling prerequisites and auto-Return policy. |
 | `Sources/SecureCredentialManager.swift` | Secure Enclave session key and encrypted vault. |
 | `Sources/SystemSetup.swift` | macOS permissions and Login Items registration/status. |
 | `Sources/Upstream/` | Glance code and adaptations, including enrollment and Dynamic Island views. |
@@ -64,7 +64,7 @@ Publish a release with app version, architecture, macOS requirement, signing sta
 
 The encrypted vault retains the prototype path `~/Library/Application Support/GlanceFill/vault-v1.json` and derivation context `local.giao.glancefill.vault.v1`. Preferences use `io.github.er1cg1ao.faceprint`, with migration of the old camera selection. Changing the vault path, key context, or encrypted data format requires a deliberate migration.
 
-The Secure Enclave protects the private key used to derive a session key; user presence gates opening the session. The app holds the derived key while unlocked. Review both hardware protection and in-process handling when changing this flow.
+The Secure Enclave protects the private key used to derive a session key; user presence gates opening the session. The app holds the derived key while the protected data session is prepared. The separate settings lock gates mutations and is checked in controller setters as well as UI controls. Settings authentication uses a fresh LAContext even when the data key already exists. Review both hardware protection and in-process handling when changing this flow.
 
 ## Contributions
 

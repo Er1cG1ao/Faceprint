@@ -25,22 +25,22 @@
 
 使用 Swift、SwiftUI、AppKit、AVFoundation 和 Core ML 构建，人脸处理在本机完成。软件界面目前为英文，文档提供英文和简体中文。
 
-### 当前正式版：1.0.0
+### 当前正式版：1.0.1
 
-首个正式版采用仿照 Glance 的六页设置、半透明圆角分组和底部胶囊分页。录脸时保留摄像头预览，设置中的实时预览、测试模式、摄像头测试和灵动岛预览入口已移除。启用填写必须先解锁会话、录入人脸并保存密码。详见[版本说明](RELEASE_NOTES.md)。
+设置锁定与自动填充现在独立运行。修改任何设置、重新录脸或更新密码前需要解锁；再次锁定设置后，已启用的自动填充继续工作。软件会记住填写开关和照片检查选项，并使用项目作者通过 Icon Composer 提供的新版圆角图标。详见[版本说明](RELEASE_NOTES.md)。
 
 ## 安装与开始使用
 
 需要 **Apple Silicon（M 系列）Mac、macOS 15 或更新版本**，目前不提供 Intel 安装包。
 
-1. 在 [最新发布页](https://github.com/Er1cG1ao/faceprint/releases/latest)的 **Assets** 中下载 `Faceprint-1.0.0-macos-arm64.zip`。
+1. 在 [最新发布页](https://github.com/Er1cG1ao/faceprint/releases/latest)的 **Assets** 中下载 `Faceprint-1.0.1-macos-arm64.zip`。
 2. 退出旧版，解压 ZIP，将 `Faceprint.app` 放入 **Applications（应用程序）**，然后再授权或启用开机自启。
-3. 打开 Faceprint，允许**摄像头**与**辅助功能**权限。点击 **Unlock session**，完成 macOS 身份验证。
+3. 打开 Faceprint，允许**摄像头**与**辅助功能**权限。点击 **Unlock to edit**，完成 macOS 身份验证。
 4. 在 **Camera** 选择摄像头，在 **Your Face** 按九方向引导录入人脸，在 **Password** 保存 Mac 登录密码。
 5. 在 **Recognition** 保持自动回车关闭，然后在 **General** 启用填写。打开支持的系统弹窗，必要时先点 **Use Password…**，让空密码框获得焦点。
-6. 识别后检查请求和已填入的密码框，再自行确认或取消。
+6. 再次锁定设置，已启用的自动填充会继续运行。识别后检查请求和已填入的密码框，再自行确认或取消。
 
-使用时保持 Faceprint 运行。关闭设置窗口后应用仍留在菜单栏；退出应用会停止识别并锁定会话。开机自启后，已保存的数据仍保持锁定。会话、自动回车、照片检查和排错方法见[使用教程](Docs/TUTORIAL.zh-CN.md)。
+使用时保持 Faceprint 运行。关闭设置窗口后应用仍留在菜单栏；退出应用会停止识别并锁定会话。设置在启动时默认锁定。若此前已启用自动填充，启动后会通过一次 macOS 验证准备受保护的数据；此验证不会解锁设置以供修改。会话、自动回车、照片检查和排错方法见[使用教程](Docs/TUTORIAL.zh-CN.md)。
 
 发布版本使用临时签名，**尚未经过 Apple 公证**。
 
@@ -50,7 +50,7 @@
 - 使用普通 RGB 摄像头，**照片或回放视频也可能通过识别**。可选的 Glance Light 照片检查能拒绝部分明显的冒充，也可能误判真人，无法可靠防住所有回放。
 - 原生“密码”AutoFill 匹配目前依赖英文弹窗文字。填入验证检查输入长度；密码是否正确、操作是否成功，由 macOS 决定。
 - 自动回车**默认关闭**。开启后可能直接确认具有管理员权限的设置修改。
-- 摄像头画面仅在内存中处理，保存的人脸特征和密码在本机加密。锁屏、睡眠、切换用户会话、退出应用或 30 分钟未使用加密数据后，会话重新锁定。详见[本地数据与隐私](Docs/TUTORIAL.zh-CN.md#本地数据与隐私)。
+- 摄像头画面仅在内存中处理，保存的人脸特征和密码在本机加密。设置在关闭窗口或 5 分钟后锁定；锁屏、睡眠、切换用户会话、退出应用或 30 分钟未使用加密数据后，运行中的加密数据重新锁定，可通过 Resume autofill 或下一个支持的弹窗再次验证。详见[本地数据与隐私](Docs/TUTORIAL.zh-CN.md#本地数据与隐私)。
 - InsightFace 预训练权重适用独立的**非商业研究条款**，代码的 MIT 许可证不赋予额外的模型使用权。详见[第三方声明](THIRD_PARTY_NOTICES.md)。
 
 ## 从源码构建
@@ -75,4 +75,4 @@ bash test.sh
 
 ## 许可证与项目来源
 
-Faceprint 代码采用 [MIT](LICENSE) 许可证，复用部分保留 [Glance 原始 MIT 声明](LICENSE-Glance.txt)。感谢 **Jonathan Zhou** 开发 Glance，感谢 **InsightFace 作者**提供人脸识别模型。Faceprint 图标由 AI 图像生成工具创作，原始图稿位于 [`Branding/Faceprint.png`](Branding/Faceprint.png)。上游版本与模型条款见[第三方声明](THIRD_PARTY_NOTICES.md)。
+Faceprint 代码采用 [MIT](LICENSE) 许可证，复用部分保留 [Glance 原始 MIT 声明](LICENSE-Glance.txt)。感谢 **Jonathan Zhou** 开发 Glance，感谢 **InsightFace 作者**提供人脸识别模型。图标最初由 AI 图像生成工具创作，当前圆角版本由项目作者通过 Icon Composer 导出，图稿位于 [`Branding/Faceprint.png`](Branding/Faceprint.png)。上游版本与模型条款见[第三方声明](THIRD_PARTY_NOTICES.md)。

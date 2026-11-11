@@ -8,17 +8,34 @@ enum FaceprintSelfTest {
                 for password in [false, true] {
                     for busy in [false, true] {
                         let expected = unlocked && face && password && !busy
-                        precondition(InputActionPolicy.canEnable(sessionUnlocked: unlocked, hasFace: face, hasPassword: password, busy: busy) == expected)
+                        precondition(InputActionPolicy.canEnable(dataSessionReady: unlocked, hasFace: face, hasPassword: password, busy: busy) == expected)
                     }
                 }
             }
         }
+        var access = SettingsAccessState()
+        precondition(!access.isUnlocked)
+        let first = access.beginAuthorization()
+        access.lock()
+        precondition(!access.completeAuthorization(first), "A late authentication must not reopen locked settings")
+        let second = access.beginAuthorization()
+        precondition(access.completeAuthorization(second) && access.isUnlocked)
+        access.lock()
+        precondition(!access.isUnlocked)
+        precondition(InputActionPolicy.canEnable(dataSessionReady: true, hasFace: true, hasPassword: true, busy: false), "Settings lock must not block ready autofill")
+        for unlocked in [false, true] {
+            for busy in [false, true] {
+                precondition(InputActionPolicy.canChangeSettings(settingsUnlocked: unlocked, busy: busy) == (unlocked && !busy))
+            }
+        }
+        print("PASS default settings lock, stale authentication rejection, edit authorization, and autofill independence")
+
         for enabled in [false, true] {
             for verified in [false, true] {
                 precondition(InputActionPolicy.shouldPressReturn(enabled: enabled, verified: verified) == (enabled && verified))
             }
         }
-        print("PASS filling requires an unlocked session, a face, a password, and idle state; Return requires opt-in and verified input")
+        print("PASS filling requires a protected data session, a face, a password, and idle state; Return requires opt-in and verified input")
 
         let poses: [(EnrollmentPose, Float, Float)] = [
             (.center, 0, 0), (.left, 0.3, 0), (.topLeft, 0.3, -0.22),

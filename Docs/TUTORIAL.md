@@ -8,11 +8,11 @@ Download the app ZIP from [Releases](https://github.com/Er1cG1ao/faceprint/relea
 
 On first launch, Faceprint requests Camera access and prompts for Accessibility access. On the **Camera** page, check both statuses. Camera is used for local recognition; Accessibility is used to inspect supported system dialogs and type into their password fields. If access is blocked, use the permission buttons and allow Faceprint in System Settings. Return to Faceprint to refresh the status.
 
-Click **Unlock session** and complete the macOS authentication request. Select your device on **Camera**. On **Your Face**, click **Enroll my face** and follow the nine-direction ring. Move gently and hold each position. The guide captures two samples per direction. Save your Mac login password on **Password** after enrollment. The camera preview appears only during enrollment.
+Click **Unlock to edit** and complete the macOS authentication request. Select your device on **Camera**. On **Your Face**, click **Enroll my face** and follow the nine-direction ring. Move gently and hold each position. The guide captures two samples per direction. Save your Mac login password on **Password** after enrollment. The camera preview appears only during enrollment.
 
 ## First password fill
 
-1. Complete setup: unlock the session, enroll your face, and save your Mac login password.
+1. Complete setup: unlock settings, enroll your face, and save your Mac login password.
 2. In **Recognition**, leave **Press Return after filling** off for the first use.
 3. In **General**, turn on **Enable face-assisted filling**.
 4. Open a supported system password dialog. Select **Use Password…** if necessary, then focus the empty password field.
@@ -22,24 +22,26 @@ Filling always uses your saved password. There is no test-character mode or came
 
 Faceprint leaves each prompt's password-entry step to you. It attempts a given field once. To retry after a failure, use **Retry current prompt** in the menu bar, or hover over the failure island while it remains visible.
 
-## Sessions and everyday use
+## Locked settings and everyday autofill
 
-**Unlock session** authorizes access to the encrypted face template and saved password through a macOS user-presence check. It is needed after opening the app and after a session locks. Individual fills can then use that unlocked session without repeating this setup step.
+Settings start locked. Click **Unlock to edit** (or the lock icon) and complete macOS authentication before changing any option, enrolling a face, updating the password, deleting saved data, or changing launch at login. Each settings unlock requests authentication, even while autofill is already running.
 
-The session locks on screen lock, sleep, user-session switch, quit, or 30 minutes without secret use. **Lock session** locks it immediately and disables filling. Unlock it and enable filling again to continue.
+After setup, enable filling and click **Lock settings**. Enabled autofill keeps running while all editable controls remain locked. Closing Settings also locks editing; the menu bar app continues to run. Settings automatically lock after 5 minutes without a settings change. Locking settings cancels an unfinished enrollment, but does not cancel a recognition/fill already in progress.
 
-Closing Settings keeps the menu bar app running. Choose **Open Faceprint…** from its menu to return. **Quit Faceprint** stops the app and locks its data.
+The encrypted data session is separate. Its key still requires macOS user-presence authentication after app launch, screen lock, sleep, user-session switch, or 30 minutes without secret use. Faceprint remembers the filling switch and can authenticate to resume enabled autofill at launch. After a data lock, the next supported prompt can request authentication; **Resume autofill** in the menu or General page retries it. Cancelling authentication pauses automatic retries until you explicitly retry. Resuming autofill leaves settings locked.
 
-On **General**, turn on **Launch at login** to register it with macOS Login Items. Install it in Applications first. If approval is needed, click **Open Login Items**. Turn the switch off to unregister it. Launching at login does not unlock saved data or enable filling automatically.
+Choose **Open Faceprint…** from the menu to reopen Settings. **Quit Faceprint** stops recognition and clears the data-session key.
+
+On **General**, unlock settings and turn on **Launch at login** to register macOS Login Items. Install the app in Applications first. If approval is needed, click **Open Login Items**. Turning the switch off unregisters it. Login launch follows the same protected-data authentication rule above.
 
 ## Recognition and confirmation settings
 
-Change these settings with filling disabled:
+Unlock settings and disable filling before changing these options:
 
 | Setting | Behavior |
 | --- | --- |
 | Dynamic Island: Original / Minimal | Selects the visual style under General. |
-| Passive photo checks (Glance Light) | Optional checks for obvious screen glare or a device around the face. No required blink or head turn. Defaults off on launch. |
+| Passive photo checks (Glance Light) | Optional checks for obvious screen glare or a device around the face. No required blink or head turn. Defaults off for new installations; the choice is remembered. |
 | Press Return after filling | Defaults off. When enabled, rechecks the target and sends Return only after verifying a real-password fill. |
 
 With automatic Return off, review the dialog and click **Modify Settings** or **OK** yourself. With it on, filling can also approve the current privileged request. Input-length verification does not establish that the password is correct; the system dialog decides that.
@@ -59,10 +61,10 @@ The app verifies supported Apple processes and dialog context. Arbitrary website
 | --- | --- |
 | No image during enrollment | Check Camera permission and the selected device on Camera. Settings has no live preview. |
 | Enrollment stops | Use steady lighting, keep your face close enough, and turn gently. Restart enrollment after a timeout. Report any crash with its version and steps. |
-| Nothing triggers | Unlock the session, enroll a face, check Accessibility permission, enable filling, and focus an empty supported system password field. |
+| Nothing triggers | Check filling is enabled, a face/password are saved, Accessibility is allowed, and the supported field is empty and focused. Use Resume autofill if protected data needs authentication. |
 | Dia works but another prompt does not | Check whether the prompt is supported and in English. Include the dialog type in a bug report with private details removed. |
 | Failed attempt will not retry | Choose Retry current prompt or use the failure-island hover action. |
-| Session is locked after sleep | Unlock it and enable filling again. This is expected. |
+| Protected data is locked after sleep | Use Resume autofill or focus the next supported prompt to authenticate. Settings can stay locked; the filling preference is remembered. |
 | Launch at login cannot be enabled | Move the app to Applications and check Login Items approval in System Settings. |
 | Password filled but request rejected | Check the saved Mac login password. The app checks the fill, while macOS checks the credential. |
 

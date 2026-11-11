@@ -25,22 +25,22 @@ Built on [**Glance by Jonathan Zhou**](https://github.com/jonnyoo/glance), with 
 
 Built with Swift, SwiftUI, AppKit, AVFoundation, and Core ML. Face processing runs locally. The app interface currently uses English; documentation is available in English and Simplified Chinese.
 
-### Current release: 1.0.0
+### Current release: 1.0.1
 
-The first stable release introduces Glance-inspired settings with six pages, translucent grouped controls, and a floating tab bar. Enrollment keeps its camera preview; Settings no longer has a live preview, test mode, camera-test button, or island-preview button. Filling requires an unlocked session, an enrolled face, and a saved password. See [release notes](RELEASE_NOTES.md).
+Settings now lock independently of autofill. Unlock to edit any setting, enroll a face, or update the password; lock settings again to keep enabled autofill running. The filling switch and photo-check preference are remembered. About and the app use the updated rounded artwork supplied by the project owner. See [release notes](RELEASE_NOTES.md).
 
 ## Install and start
 
 Requires **Apple Silicon (M-series), macOS 15 or later**. Intel builds are not currently distributed.
 
-1. Download `Faceprint-1.0.0-macos-arm64.zip` from **Assets** on the [latest release](https://github.com/Er1cG1ao/faceprint/releases/latest).
+1. Download `Faceprint-1.0.1-macos-arm64.zip` from **Assets** on the [latest release](https://github.com/Er1cG1ao/faceprint/releases/latest).
 2. Quit the old version, extract the ZIP, and move `Faceprint.app` into **Applications** before granting permissions or enabling launch at login.
-3. Open Faceprint and allow **Camera** and **Accessibility** access. Click **Unlock session** and complete the macOS authentication request.
+3. Open Faceprint and allow **Camera** and **Accessibility** access. Click **Unlock to edit** and complete the macOS authentication request.
 4. Select your device in **Camera**, enroll from **Your Face**, and save your Mac login password in **Password**.
 5. Leave automatic Return off in **Recognition**, then enable filling in **General**. Open a supported prompt, select **Use Password…** if needed, and focus the empty password field.
-6. After recognition, review the request and filled field, then confirm or cancel it yourself.
+6. Lock settings again. Enabled autofill continues; after recognition, review the request and filled field, then confirm or cancel it yourself.
 
-Keep Faceprint running. Closing Settings leaves it in the menu bar; quitting stops recognition and locks the session. Launch at login opens the app with saved data locked. See the [guide](Docs/TUTORIAL.md) for sessions, automatic Return, photo checks, and troubleshooting.
+Keep Faceprint running. Closing Settings leaves it in the menu bar; quitting stops recognition and locks the session. Settings start locked. If autofill was enabled, Faceprint requests macOS authentication to prepare its protected data after launch. That does not unlock settings for editing. See the [guide](Docs/TUTORIAL.md) for sessions, automatic Return, photo checks, and troubleshooting.
 
 Distributed builds use ad hoc signing and are **not Apple-notarized**.
 
@@ -50,7 +50,7 @@ Distributed builds use ad hoc signing and are **not Apple-notarized**.
 - Recognition uses an ordinary RGB camera. **Photos or replayed video can be accepted.** Optional Glance Light photo checks reject some obvious spoofs and can also misidentify real users; they do not provide reliable replay protection.
 - Native Passwords AutoFill matching currently relies on English dialog wording. A verified fill checks input length; macOS decides whether the password is correct and whether the action succeeds.
 - Automatic Return is **off by default**. Enabling it can confirm a privileged settings change.
-- Camera images are processed in memory. Saved face embeddings and the password are encrypted on your Mac. Sessions lock on screen lock, sleep, user-session switch, quit, or 30 minutes without secret use. See [local data and privacy](Docs/TUTORIAL.md#local-data-and-privacy).
+- Camera images are processed in memory. Saved face embeddings and the password are encrypted on your Mac. Settings lock after 5 minutes or when closed. Protected data locks on screen lock, sleep, user-session switch, quit, or 30 minutes without secret use; use Resume autofill or the next supported prompt to authenticate again. See [local data and privacy](Docs/TUTORIAL.md#local-data-and-privacy).
 - InsightFace pretrained weights carry separate **non-commercial research terms**. The code's MIT license does not grant additional rights to the model. See [third-party notices](THIRD_PARTY_NOTICES.md).
 
 ## Build from source
@@ -75,4 +75,4 @@ Open an [Issue](https://github.com/Er1cG1ao/faceprint/issues) with the Faceprint
 
 ## License and origins
 
-[MIT](LICENSE) for Faceprint code, with [Glance's original MIT notice](LICENSE-Glance.txt) preserved for reused components. Thanks to **Jonathan Zhou** for Glance and to **InsightFace's authors** for the face-recognition model. The Faceprint icon was created with AI image generation; its source artwork is in [`Branding/Faceprint.png`](Branding/Faceprint.png). See [third-party notices](THIRD_PARTY_NOTICES.md) for upstream revisions and model terms.
+[MIT](LICENSE) for Faceprint code, with [Glance's original MIT notice](LICENSE-Glance.txt) preserved for reused components. Thanks to **Jonathan Zhou** for Glance and to **InsightFace's authors** for the face-recognition model. The icon began with AI-generated artwork; the current rounded export was supplied by the project owner using Icon Composer. Source artwork is in [`Branding/Faceprint.png`](Branding/Faceprint.png). See [third-party notices](THIRD_PARTY_NOTICES.md) for upstream revisions and model terms.

@@ -58,7 +58,7 @@ struct SetupView: View {
     @Namespace private var tabAnimation
     @Environment(\.colorScheme) private var colorScheme
 
-    private var canEdit: Bool { !controller.busy && !controller.enabled }
+    private var canEdit: Bool { controller.canEditOptions }
     private var cardFill: Color { colorScheme == .dark ? .white.opacity(0.07) : .white.opacity(0.7) }
     private var border: Color { colorScheme == .dark ? .white.opacity(0.10) : .black.opacity(0.08) }
 
@@ -98,7 +98,7 @@ struct SetupView: View {
             if page == .camera { devices = Camera.devices }
             systemSetup.refresh()
         }
-        .onDisappear { controller.passwordDraft = "" }
+        .onDisappear { controller.lockSettings() }
     }
 
     private var header: some View {
@@ -111,16 +111,16 @@ struct SetupView: View {
                     .help("Refresh camera list").accessibilityLabel("Refresh camera list")
             }
             Button {
-                if controller.sessionUnlocked { controller.lockSession() }
-                else { controller.unlockSession() }
+                if controller.settingsUnlocked { controller.lockSettings() }
+                else { controller.unlockSettings() }
             } label: {
-                Image(systemName: controller.sessionUnlocked ? "lock.open" : "lock.fill")
+                Image(systemName: controller.settingsUnlocked ? "lock.open" : "lock.fill")
                     .frame(width: 30, height: 30)
             }
             .buttonStyle(.plain).background(cardFill, in: Circle())
-            .disabled(controller.busy && !controller.sessionUnlocked)
-            .help(controller.sessionUnlocked ? "Lock session" : "Unlock session")
-            .accessibilityLabel(controller.sessionUnlocked ? "Lock session" : "Unlock session")
+            .disabled(controller.busy && !controller.settingsUnlocked)
+            .help(controller.settingsUnlocked ? "Lock settings" : "Unlock to edit settings")
+            .accessibilityLabel(controller.settingsUnlocked ? "Lock settings" : "Unlock to edit settings")
         }
         .padding(.horizontal, 24).frame(height: 52)
         .background(.regularMaterial)
@@ -171,34 +171,42 @@ struct SetupView: View {
     private var generalPage: some View {
         VStack(alignment: .leading, spacing: 14) {
             group {
-                Toggle("Enable face-assisted filling", isOn: $controller.enabled)
+                Toggle("Enable face-assisted filling", isOn: Binding(get: { controller.enabled }, set: controller.setEnabled))
                     .toggleStyle(.switch).controlSize(.small)
-                    .disabled(!controller.enabled && !controller.canEnable)
+                    .disabled(!controller.canModifySettings || (!controller.enabled && !controller.canEnable))
                     .padding(14)
             }
             if !controller.canEnable && !controller.enabled {
-                caption("Unlock your session, enroll your face, and save your Mac password to enable filling.")
+                caption("Unlock settings, enroll your face, and save your Mac password to enable filling.")
             }
             group {
-                row("Session", detail: controller.sessionUnlocked ? "Saved data is available for this session." : "Authenticate to use your encrypted saved data.") {
-                    Button(controller.sessionUnlocked ? "Lock" : "Unlock") {
-                        if controller.sessionUnlocked { controller.lockSession() } else { controller.unlockSession() }
+                row("Settings", detail: controller.settingsUnlocked ? "Changes are allowed until you lock settings." : "Locked for editing. Enabled autofill keeps working.") {
+                    Button(controller.settingsUnlocked ? "Lock" : "Unlock to edit") {
+                        if controller.settingsUnlocked { controller.lockSettings() } else { controller.unlockSettings() }
                     }.buttonStyle(.bordered).controlSize(.small)
-                        .disabled(controller.busy && !controller.sessionUnlocked)
+                        .disabled(controller.busy && !controller.settingsUnlocked)
+                }
+            }
+            if controller.enabled && !controller.dataSessionReady {
+                group {
+                    row("Autofill paused", detail: "Authenticate to open protected data after launch or sleep. Settings stay locked.") {
+                        Button("Resume", action: controller.resumeAutofill)
+                            .buttonStyle(.bordered).controlSize(.small).disabled(controller.busy)
+                    }
                 }
             }
             group {
                 Toggle("Launch at login", isOn: Binding(get: { systemSetup.launchAtLogin }, set: { systemSetup.setLaunchAtLogin($0) }))
-                    .toggleStyle(.switch).controlSize(.small).padding(14)
+                    .toggleStyle(.switch).controlSize(.small).padding(14).disabled(!controller.canModifySettings)
             }
             caption(systemSetup.loginStatus)
             if systemSetup.loginNeedsApproval {
-                Button("Open Login Items", action: systemSetup.openLoginSettings).buttonStyle(.bordered)
+                Button("Open Login Items", action: systemSetup.openLoginSettings).buttonStyle(.bordered).disabled(!controller.canModifySettings)
             }
             sectionTitle("DYNAMIC ISLAND")
             group {
                 row("Animation", detail: "Recognition and result feedback.") {
-                    Picker("Animation", selection: $controller.islandStyle) {
+                    Picker("Animation", selection: Binding(get: { controller.islandStyle }, set: controller.setIslandStyle)) {
                         Text("Original").tag(UnlockAnimationStyle.original)
                         Text("Minimal").tag(UnlockAnimationStyle.minimal)
                     }.labelsHidden().frame(width: 126).disabled(!canEdit)
@@ -209,8 +217,8 @@ struct SetupView: View {
     }
 
     @ViewBuilder private var facePage: some View {
-        if !controller.sessionUnlocked {
-            lockedState("Unlock to view or update your enrolled face.")
+        if !controller.settingsUnlocked {
+            lockedState("Unlock settings to enroll or update your face.")
         } else {
             group {
                 row("Face encrypted", detail: "Your face template stays on this Mac.") {
@@ -232,8 +240,8 @@ struct SetupView: View {
     }
 
     @ViewBuilder private var passwordPage: some View {
-        if !controller.sessionUnlocked {
-            lockedState("Unlock to save or change your Mac login password.")
+        if !controller.settingsUnlocked {
+            lockedState("Unlock settings to save or change your Mac login password.")
         } else {
             group {
                 row(controller.hasPassword ? "Password encrypted" : "No password saved", detail: controller.protectionStatus) {
@@ -257,13 +265,13 @@ struct SetupView: View {
                     }
                 }.padding(14)
             }
-            caption("Use the password for your current Mac account. Saved data is encrypted locally and available only while the session is unlocked.")
+            caption("Use the password for your current Mac account. Saved data is encrypted locally. Locking settings keeps enabled autofill running.")
             if controller.enabled { caption("Turn off filling in General before changing the saved password.") }
             sectionTitle("SAVED DATA")
             group {
                 row("Remove saved data", detail: "Remove both the saved face and password.") {
                     Button("Remove…", action: controller.removeSavedData)
-                        .buttonStyle(.bordered).controlSize(.small).disabled(controller.busy)
+                        .buttonStyle(.bordered).controlSize(.small).disabled(!canEdit)
                 }
             }
         }
@@ -274,7 +282,7 @@ struct SetupView: View {
             group {
                 VStack(alignment: .leading, spacing: 10) {
                     Text("Recognition camera").font(.system(size: 13, weight: .medium))
-                    Picker("Camera", selection: $controller.cameraID) {
+                    Picker("Camera", selection: Binding(get: { controller.cameraID }, set: controller.setCameraID)) {
                         Text("System default").tag("")
                         ForEach(devices, id: \.uniqueID) { device in Text(device.localizedName).tag(device.uniqueID) }
                         if !controller.cameraID.isEmpty && !devices.contains(where: { $0.uniqueID == controller.cameraID }) {
@@ -290,13 +298,13 @@ struct SetupView: View {
                     if systemSetup.cameraGranted { granted }
                     else {
                         Button("Allow") { Task { await systemSetup.requestCamera() } }
-                            .buttonStyle(.bordered).controlSize(.small).disabled(systemSetup.requestingPermissions)
+                            .buttonStyle(.bordered).controlSize(.small).disabled(systemSetup.requestingPermissions || !controller.canModifySettings)
                     }
                 }
                 Divider().padding(.horizontal, 14)
                 row("Accessibility", detail: systemSetup.accessibilityGranted ? "Allowed for supported password prompts." : "Needed to detect prompts and fill passwords.") {
                     if systemSetup.accessibilityGranted { granted }
-                    else { Button("Allow", action: systemSetup.requestAccessibility).buttonStyle(.bordered).controlSize(.small) }
+                    else { Button("Allow") { systemSetup.requestAccessibility() }.buttonStyle(.bordered).controlSize(.small).disabled(!controller.canModifySettings) }
                 }
             }
             caption("Permission changes take effect after you return from System Settings. Use the refresh button above to reload connected cameras.")
@@ -306,18 +314,18 @@ struct SetupView: View {
     private var recognitionPage: some View {
         VStack(alignment: .leading, spacing: 14) {
             group {
-                Toggle("Passive photo checks", isOn: $controller.passivePhotoChecks)
+                Toggle("Passive photo checks", isOn: Binding(get: { controller.passivePhotoChecks }, set: controller.setPhotoChecks))
                     .toggleStyle(.switch).controlSize(.small).padding(14).disabled(!canEdit)
             }
             caption("Glance Light checks for obvious screen glare or device borders. No required blink or head turn. Photos or replayed video can still be accepted.")
             group {
-                Toggle("Press Return after filling", isOn: $controller.autoSubmit)
+                Toggle("Press Return after filling", isOn: Binding(get: { controller.autoSubmit }, set: controller.setAutoSubmit))
                     .toggleStyle(.switch).controlSize(.small).padding(14).disabled(!canEdit)
             }
             caption("Off by default. When enabled, a verified password fill is followed by Return, which can approve a system settings change.")
-            sectionTitle("SESSION PROTECTION")
+            sectionTitle("SETTINGS & DATA PROTECTION")
             group {
-                row("Automatic lock", detail: "On screen lock, sleep, user-session switch, or 30 minutes without secret use.") {
+                row("Automatic protection", detail: "Settings lock after 5 minutes. Protected data locks on sleep, screen lock, user switch, or 30 minutes without secret use.") {
                     Image(systemName: "lock.shield").foregroundStyle(.secondary)
                 }
             }
@@ -330,6 +338,7 @@ struct SetupView: View {
         VStack(spacing: 16) {
             Image(nsImage: NSImage(contentsOf: Bundle.main.url(forResource: "Faceprint", withExtension: "icns") ?? URL(fileURLWithPath: "/")) ?? NSApp.applicationIconImage)
                 .resizable().scaledToFit().frame(width: 80, height: 80)
+                .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
             VStack(spacing: 5) {
                 Text("Faceprint").font(.system(size: 23, weight: .bold))
                 Text("\(Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "")")
@@ -356,11 +365,11 @@ struct SetupView: View {
     private func lockedState(_ detail: String) -> some View {
         VStack(spacing: 14) {
             Image(systemName: "lock.fill").font(.system(size: 34, weight: .light)).foregroundStyle(.secondary)
-            Text("Session locked").font(.system(size: 16, weight: .medium))
+            Text("Settings locked").font(.system(size: 16, weight: .medium))
             Text(detail).font(.system(size: 12)).foregroundStyle(.secondary)
-            Button("Unlock session", action: controller.unlockSession)
+            Button("Unlock to edit", action: controller.unlockSettings)
                 .buttonStyle(.borderedProminent).clipShape(Capsule()).disabled(controller.busy)
-            Text("Locks again on screen lock, sleep, or inactivity.")
+            Text("Enabled autofill keeps working while settings are locked.")
                 .font(.system(size: 11)).foregroundStyle(.secondary)
         }.multilineTextAlignment(.center).frame(maxWidth: .infinity, minHeight: 280)
     }

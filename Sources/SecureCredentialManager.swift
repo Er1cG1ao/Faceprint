@@ -112,10 +112,10 @@ enum SecureCredentialManager {
 
     /// Runs off the main thread. The ECDH operation itself requires userPresence
     /// inside the Secure Enclave. A separate yes/no authentication gate is not used.
-    static func unlockSession(reason: String) throws {
+    static func unlockSession(reason: String, authenticationContext: LAContext? = nil) throws {
         if isSessionUnlocked { return }
         guard SecureEnclave.isAvailable else { throw SecureCredentialError.unsupportedHardware }
-        let context = LAContext()
+        let context = authenticationContext ?? LAContext()
         context.localizedReason = reason
         let saved: Vault
         let creating: Bool

@@ -13,6 +13,8 @@ final class SystemSetup: ObservableObject {
     @Published private(set) var cameraGranted = false
     @Published private(set) var requestingPermissions = false
 
+    var canModifySettings: () -> Bool = { false }
+
     init() { refresh() }
 
     func refresh() {
@@ -20,7 +22,7 @@ final class SystemSetup: ObservableObject {
         launchAtLogin = status == .enabled || status == .requiresApproval
         loginNeedsApproval = status == .requiresApproval
         switch status {
-        case .enabled: loginStatus = "Faceprint opens when you log in. Unlock a session to start using saved data."
+        case .enabled: loginStatus = "Faceprint opens when you log in. Autofill can run while settings stay locked."
         case .requiresApproval: loginStatus = "Allow Faceprint in System Settings → General → Login Items."
         case .notRegistered: loginStatus = "Off. Faceprint will not open automatically."
         case .notFound: loginStatus = "Install Faceprint in Applications before enabling launch at login."
@@ -38,6 +40,7 @@ final class SystemSetup: ObservableObject {
     }
 
     func setLaunchAtLogin(_ enabled: Bool) {
+        guard canModifySettings() else { return }
         do {
             if enabled {
                 let path = Bundle.main.bundleURL.standardizedFileURL.path
@@ -56,14 +59,15 @@ final class SystemSetup: ObservableObject {
         }
     }
 
-    func requestAccessibility() {
+    func requestAccessibility(initialSetup: Bool = false) {
+        guard initialSetup || canModifySettings() else { return }
         let key = kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String
         _ = AXIsProcessTrustedWithOptions([key: true] as CFDictionary)
         refresh()
     }
 
-    func requestCamera() async {
-        guard !requestingPermissions else { return }
+    func requestCamera(initialSetup: Bool = false) async {
+        guard (initialSetup || canModifySettings()), !requestingPermissions else { return }
         requestingPermissions = true
         defer { requestingPermissions = false; refresh() }
         switch AVCaptureDevice.authorizationStatus(for: .video) {
@@ -78,13 +82,16 @@ final class SystemSetup: ObservableObject {
         guard !UserDefaults.standard.bool(forKey: "permissionOnboardingShown") else { return }
         UserDefaults.standard.set(true, forKey: "permissionOnboardingShown")
         if AVCaptureDevice.authorizationStatus(for: .video) == .notDetermined {
-            await requestCamera()
+            await requestCamera(initialSetup: true)
         }
-        if !AXIsProcessTrusted() { requestAccessibility() }
+        if !AXIsProcessTrusted() { requestAccessibility(initialSetup: true) }
         refresh()
     }
 
-    func openLoginSettings() { SMAppService.openSystemSettingsLoginItems() }
+    func openLoginSettings() {
+        guard canModifySettings() else { return }
+        SMAppService.openSystemSettingsLoginItems()
+    }
 
     func openPrivacySettings(_ pane: String) {
         guard ["Camera", "Accessibility"].contains(pane),
