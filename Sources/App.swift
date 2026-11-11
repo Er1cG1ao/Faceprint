@@ -2,6 +2,7 @@ import AppKit
 import SwiftUI
 import Combine
 import AVFoundation
+import Carbon
 
 @MainActor
 final class FillController: ObservableObject {
@@ -31,6 +32,7 @@ final class FillController: ObservableObject {
             else { status = "Waiting for an empty supported system password field." }
         }
     }
+    var onAuthenticationFinished: (() -> Void)?
     let camera: Camera
     let enrollment: OnboardingController
     private var template: FaceTemplate?
@@ -104,6 +106,7 @@ final class FillController: ObservableObject {
             }
             authenticationInProgress = false
             busy = false
+            onAuthenticationFinished?()
         }
     }
 
@@ -128,11 +131,6 @@ final class FillController: ObservableObject {
         try SecureCredentialManager.savePassword(data)
         hasPassword = true
         status = "Password encrypted and saved."
-    }
-
-    func requestAccessibility() {
-        let key = kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String
-        _ = AXIsProcessTrustedWithOptions([key: true] as CFDictionary)
     }
 
     func retry() {
@@ -385,16 +383,17 @@ final class FillController: ObservableObject {
 
 struct SetupView: View {
     @ObservedObject var controller: FillController
+    @ObservedObject var systemSetup: SystemSetup
     private let devices = Camera.devices
 
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 15) {
                 HStack {
-                    Image(systemName: "faceid").font(.system(size: 32)).foregroundStyle(.blue)
+                    Image(nsImage: NSApp.applicationIconImage).resizable().frame(width: 48, height: 48)
                     VStack(alignment: .leading) {
                         Text("Faceprint").font(.title2.bold())
-                        Text("0.1.0 Beta 1").font(.caption).foregroundStyle(.secondary)
+                        Text("0.1.1 Beta 2").font(.caption).foregroundStyle(.secondary)
                         Text("Face-assisted filling for system prompts and AutoFill").foregroundStyle(.secondary)
                     }
                     Spacer()
@@ -407,10 +406,45 @@ struct SetupView: View {
                         .disabled(controller.sessionUnlocked || controller.busy)
                     Button("Lock session", action: controller.lockSession).disabled(!controller.sessionUnlocked)
                     Spacer()
-                    Button("Accessibility access", action: controller.requestAccessibility)
+                    Button("Accessibility access", action: systemSetup.requestAccessibility)
                 }
+                Text("Unlock session authorizes access to your encrypted face and password for this session. It locks again on screen lock, sleep, or 30 minutes without use.")
+                    .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
                 Text(controller.protectionStatus).font(.caption).foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
+                GroupBox("Startup & Permissions") {
+                    VStack(alignment: .leading, spacing: 8) {
+                        Toggle("Launch Faceprint at login", isOn: Binding(
+                            get: { systemSetup.launchAtLogin },
+                            set: { systemSetup.setLaunchAtLogin($0) }
+                        ))
+                        Text(systemSetup.loginStatus).font(.caption).foregroundStyle(.secondary)
+                        if systemSetup.loginNeedsApproval {
+                            Button("Open Login Items", action: systemSetup.openLoginSettings)
+                        }
+                        Divider()
+                        HStack {
+                            Label(systemSetup.cameraStatus, systemImage: systemSetup.cameraGranted ? "checkmark.circle.fill" : "camera")
+                                .font(.caption)
+                            Spacer()
+                            if !systemSetup.cameraGranted {
+                                Button("Allow Camera") { Task { await systemSetup.requestCamera() } }
+                                    .disabled(systemSetup.requestingPermissions)
+                            }
+                        }
+                        HStack {
+                            Label(systemSetup.accessibilityGranted ? "Accessibility allowed" : "Accessibility access needed",
+                                  systemImage: systemSetup.accessibilityGranted ? "checkmark.circle.fill" : "accessibility")
+                                .font(.caption)
+                            Spacer()
+                            if !systemSetup.accessibilityGranted {
+                                Button("Allow Accessibility", action: systemSetup.requestAccessibility)
+                            }
+                        }
+                        Text("Camera recognizes your face locally. Accessibility detects supported password prompts and types into them.")
+                            .font(.caption).foregroundStyle(.secondary)
+                    }.padding(4).frame(maxWidth: .infinity, alignment: .leading)
+                }
                 Picker("Camera", selection: $controller.cameraID) {
                     Text("System default").tag("")
                     ForEach(devices, id: \.uniqueID) { device in Text(device.localizedName).tag(device.uniqueID) }
@@ -422,7 +456,7 @@ struct SetupView: View {
                     }.disabled(controller.busy && !controller.previewing)
                     Button("Preview Dynamic Island", action: controller.previewIsland).disabled(controller.busy)
                 }
-                CameraPreviewView(session: controller.camera.session)
+                CameraPreviewView(camera: controller.camera)
                     .frame(height: 190).background(.black).clipShape(RoundedRectangle(cornerRadius: 12))
                 HStack {
                     Button(controller.hasFace ? "Enroll face again" : "Enroll my face", action: controller.enroll)
@@ -481,6 +515,7 @@ struct SetupView: View {
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
     private let controller = FillController()
+    private let systemSetup = SystemSetup()
     private var statusItem: NSStatusItem!
     private var window: NSWindow!
     private var subscription: AnyCancellable?
@@ -507,16 +542,29 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         for item in menu.items { item.target = self }
         statusItem.menu = menu
         subscription = controller.$status.sink { [weak self] text in self?.statusItem.button?.toolTip = text }
-        let host = NSHostingController(rootView: SetupView(controller: controller))
+        let host = NSHostingController(rootView: SetupView(controller: controller, systemSetup: systemSetup))
         window = NSWindow(contentViewController: host)
         window.title = "Faceprint"
         window.styleMask = [.titled, .closable, .miniaturizable]
         window.isReleasedWhenClosed = false
         window.center()
-        showWindow()
+        controller.onAuthenticationFinished = { [weak self] in
+            // LocalAuthentication may reactivate the previous foreground app as its
+            // prompt closes. Restore the visible settings window after that handoff.
+            Task { @MainActor [weak self] in
+                try? await Task.sleep(for: .milliseconds(200))
+                guard let self, self.window.isVisible, !self.controller.busy else { return }
+                self.showWindow()
+            }
+        }
+        let event = NSAppleEventManager.shared().currentAppleEvent
+        let loginLaunch = event?.paramDescriptor(forKeyword: keyAEPropData)?.enumCodeValue == keyAELaunchedAsLogInItem
+        if !loginLaunch { showWindow() }
+        Task { await systemSetup.requestFirstLaunchPermissions() }
     }
 
-    @objc func showWindow() { window.makeKeyAndOrderFront(nil); NSApp.activate(ignoringOtherApps: true) }
+    func applicationDidBecomeActive(_ notification: Notification) { systemSetup.refresh() }
+    @objc func showWindow() { NSApp.activate(ignoringOtherApps: true); window.makeKeyAndOrderFront(nil) }
     @objc func retry() { controller.retry() }
     @objc func lock() { controller.lockSession() }
     @objc func quit() { controller.lockSession(); NSApp.terminate(nil) }

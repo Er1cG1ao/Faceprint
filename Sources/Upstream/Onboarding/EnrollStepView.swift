@@ -39,7 +39,7 @@ struct EnrollStepView: View {
         ZStack {
             EnrollmentRingView(controller: controller)
 
-            CameraPreviewView(session: controller.camera.session)
+            CameraPreviewView(camera: controller.camera)
                 .frame(
                     width: OnboardingMetrics.cameraCircleDiameter,
                     height: OnboardingMetrics.cameraCircleDiameter

@@ -10,7 +10,7 @@ enum FillError: LocalizedError {
 }
 
 final class Camera: NSObject, AVCaptureVideoDataOutputSampleBufferDelegate, @unchecked Sendable {
-    let session = AVCaptureSession()
+    private let session = AVCaptureSession()
     private let queue = DispatchQueue(label: "io.github.er1cg1ao.faceprint.camera")
     private let frameLock = NSLock()
     private let controlLock = NSLock()
@@ -47,6 +47,7 @@ final class Camera: NSObject, AVCaptureVideoDataOutputSampleBufferDelegate, @unc
 
     func start(deviceID: String) async throws {
         let token = nextGeneration()
+        clearFrame()
         let allowed = await AVCaptureDevice.requestAccess(for: .video)
         try Task.checkCancellation()
         guard allowed else { throw FillError.message("Allow Camera access in System Settings, then try again.") }
@@ -56,6 +57,7 @@ final class Camera: NSObject, AVCaptureVideoDataOutputSampleBufferDelegate, @unc
                 do {
                     guard self.isCurrent(token) else { throw CancellationError() }
                     if self.session.isRunning { self.session.stopRunning() }
+                    self.clearFrame()
                     self.session.beginConfiguration()
                     configuring = true
                     self.session.sessionPreset = .vga640x480
@@ -86,8 +88,15 @@ final class Camera: NSObject, AVCaptureVideoDataOutputSampleBufferDelegate, @unc
         }
     }
 
+    private func clearFrame() {
+        frameLock.lock()
+        frame = nil
+        frameLock.unlock()
+    }
+
     func stop() {
         let token = nextGeneration()
+        clearFrame()
         queue.async {
             guard self.isCurrent(token) else { return }
             self.session.stopRunning()

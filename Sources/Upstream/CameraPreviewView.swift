@@ -1,52 +1,64 @@
-// Camera preview rendering from jonnyoo/glance, MIT.
+// Glance-compatible mirrored preview. Rendering uses Camera's existing frame output;
+// views must never attach preview layers to a live capture session.
 import SwiftUI
-import AVFoundation
 import AppKit
 
 struct CameraPreviewView: NSViewRepresentable {
-    let session: AVCaptureSession
-    var faces: [DetectedFace] = []
+    let camera: Camera
 
-    func makeNSView(context: Context) -> PreviewHostView { PreviewHostView(session: session) }
-    func updateNSView(_ nsView: PreviewHostView, context: Context) { nsView.updateFaceBoxes(faces) }
+    func makeNSView(context: Context) -> PreviewHostView { PreviewHostView(camera: camera) }
+    func updateNSView(_ nsView: PreviewHostView, context: Context) {}
+    static func dismantleNSView(_ nsView: PreviewHostView, coordinator: ()) { nsView.stopDisplaying() }
 }
 
 final class PreviewHostView: NSView {
-    private let previewLayer: AVCaptureVideoPreviewLayer
-    private var boxLayers: [CAShapeLayer] = []
+    private let camera: Camera
+    private let imageLayer = CALayer()
+    private var timer: Timer?
+    private var lastFrameID: UInt64?
 
-    init(session: AVCaptureSession) {
-        previewLayer = AVCaptureVideoPreviewLayer(session: session)
+    init(camera: Camera) {
+        self.camera = camera
         super.init(frame: .zero)
         wantsLayer = true
         layer = CALayer()
-        previewLayer.videoGravity = .resizeAspectFill
-        layer?.addSublayer(previewLayer)
+        imageLayer.contentsGravity = .resizeAspectFill
+        imageLayer.masksToBounds = true
+        layer?.addSublayer(imageLayer)
     }
 
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        stopDisplaying()
+        guard window != nil else { return }
+        let timer = Timer(timeInterval: 1.0 / 30, repeats: true) { [weak self] _ in
+            self?.displayLatestFrame()
+        }
+        self.timer = timer
+        RunLoop.main.add(timer, forMode: .common)
+    }
+
+    func stopDisplaying() { timer?.invalidate(); timer = nil }
+
+    private func displayLatestFrame() {
+        let frame = camera.latestFrame()
+        guard frame?.id != lastFrameID else { return }
+        lastFrameID = frame?.id
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        imageLayer.contents = frame?.image
+        CATransaction.commit()
+    }
 
     override func layout() {
         super.layout()
         CATransaction.begin()
         CATransaction.setDisableActions(true)
-        previewLayer.bounds = CGRect(origin: .zero, size: bounds.size)
-        previewLayer.position = CGPoint(x: bounds.midX, y: bounds.midY)
-        previewLayer.setAffineTransform(CGAffineTransform(scaleX: -1, y: 1))
+        imageLayer.bounds = CGRect(origin: .zero, size: bounds.size)
+        imageLayer.position = CGPoint(x: bounds.midX, y: bounds.midY)
+        imageLayer.setAffineTransform(CGAffineTransform(scaleX: -1, y: 1))
         CATransaction.commit()
-    }
-
-    func updateFaceBoxes(_ faces: [DetectedFace]) {
-        boxLayers.forEach { $0.removeFromSuperlayer() }
-        boxLayers = faces.map { face in
-            let rect = previewLayer.layerRectConverted(fromMetadataOutputRect: face.normalizedBoundingBox)
-            let shape = CAShapeLayer()
-            shape.path = CGPath(rect: rect, transform: nil)
-            shape.strokeColor = NSColor.systemGreen.cgColor
-            shape.fillColor = NSColor.clear.cgColor
-            shape.lineWidth = 2
-            previewLayer.addSublayer(shape)
-            return shape
-        }
     }
 }
