@@ -49,18 +49,39 @@ struct PromptTarget {
     }
 
     static func current(requireEmpty: Bool = true) -> PromptTarget? {
-        guard let focused = focusedSecureField(requireEmpty: requireEmpty),
-              let bundleID = focused.app.bundleIdentifier,
-              focused.app.bundleURL?.path.hasPrefix("/System/") == true else { return nil }
+        guard let focused = focusedSecureField(requireEmpty: requireEmpty) else { return nil }
+        return candidate(focused.field, requireEmpty: requireEmpty)
+    }
+
+    /// Classify a specific secure field without requiring keyboard focus. This
+    /// never reads credentials: the AX value is used only to require emptiness.
+    fileprivate static func candidate(_ field: AXUIElement, requireEmpty: Bool) -> PromptTarget? {
+        guard attribute(field, kAXRoleAttribute) as? String == kAXTextFieldRole,
+              attribute(field, kAXSubroleAttribute) as? String == kAXSecureTextFieldSubrole
+                || attribute(field, kAXRoleDescriptionAttribute) as? String == "secure text field",
+              attribute(field, kAXEnabledAttribute) as? Bool != false,
+              attribute(field, "AXHidden") as? Bool != true else { return nil }
+        if requireEmpty {
+            guard let value = attribute(field, kAXValueAttribute) as? String, value.isEmpty else { return nil }
+        }
+        var pid: pid_t = 0
+        guard AXUIElementGetPid(field, &pid) == .success,
+              let app = NSRunningApplication(processIdentifier: pid), let bundleID = app.bundleIdentifier,
+              app.bundleURL?.path.hasPrefix("/System/") == true, PromptPolicy.supportsOwner(bundleID) else { return nil }
         let contextID: String
-        if bundleID == PromptPolicy.privacyBundleID {
-            contextID = "privacy"
-        } else {
-            guard PromptPolicy.supportsOwner(bundleID),
-                  let context = promptContext(for: focused.field, bundleID: bundleID) else { return nil }
+        if bundleID == PromptPolicy.privacyBundleID { contextID = "privacy" }
+        else {
+            guard let context = promptContext(for: field, bundleID: bundleID) else { return nil }
             contextID = context
         }
-        return PromptTarget(field: focused.field, pid: focused.pid, ownerBundleID: bundleID, contextID: contextID)
+        return PromptTarget(field: field, pid: pid, ownerBundleID: bundleID, contextID: contextID)
+    }
+
+    fileprivate func focusForContinuation() {
+        let window = Self.elementAttribute(field, kAXWindowAttribute)
+            ?? Self.elementAttribute(field, kAXTopLevelUIElementAttribute)
+        if let window { AXUIElementPerformAction(window, kAXRaiseAction as CFString) }
+        AXUIElementSetAttributeValue(field, kAXFocusedAttribute as CFString, kCFBooleanTrue)
     }
 
     fileprivate static func elementAttribute(_ element: AXUIElement, _ name: String) -> AXUIElement? {
@@ -383,21 +404,79 @@ struct BiometricPromptTarget {
         guard AXUIElementPerformAction(button, kAXPressAction as CFString) == .success else {
             throw FillError.message("Use Password could not be selected. Open the password field manually.")
         }
-        let deadline = Date().addingTimeInterval(3)
+        let transitionStarted = Date()
+        let transitionFrontmostPID = NSWorkspace.shared.frontmostApplication?.processIdentifier
+        let deadline = transitionStarted.addingTimeInterval(7)
+        var lastField: AXUIElement?
+        var readiness = PasswordFieldReadiness()
         while Date() < deadline {
             try Task.checkCancellation()
-            if let target = PromptTarget.current(requireEmpty: false) {
-                guard PromptPolicy.isSameFallbackRequest(originalPID: pid, passwordPID: target.pid,
-                                                        originalBundleID: ownerBundleID, passwordBundleID: target.ownerBundleID,
-                                                        originalContext: contextID, passwordContext: target.contextID),
-                      target.isCurrent(requireEmpty: true), target.verifyAppleSignature() else {
-                    throw FillError.message("Password prompt changed or is not empty. No password was entered.")
+            guard verifyAppleSignature(), let owner = NSRunningApplication(processIdentifier: pid),
+                  !owner.isTerminated else { throw CancellationError() }
+            // A newly mounted password card may initially focus its user-name
+            // field or no field at all. Find its secure field within this request.
+            if let target = continuationField() {
+                let sameField = lastField.map { CFEqual($0, target.field) } ?? false
+                if !sameField { lastField = target.field }
+                let empty = PromptTarget.attribute(target.field, kAXValueAttribute) as? String == ""
+                guard empty else {
+                    throw FillError.message("The password field is not empty. No password was entered.")
                 }
-                return target
+                let focused = target.isCurrent(requireEmpty: true)
+                if !focused {
+                    if let active = NSWorkspace.shared.frontmostApplication?.processIdentifier,
+                       active != pid, active != discoveryFrontmostPID, active != transitionFrontmostPID,
+                       active != NSRunningApplication.current.processIdentifier {
+                        throw FillError.message("The active app changed during password fallback. No password was entered.")
+                    }
+                    target.focusForContinuation()
+                }
+                if readiness.observe(sameField: sameField, focusedAndEmpty: focused,
+                    now: Date().timeIntervalSince(transitionStarted)), target.verifyAppleSignature() {
+                    return target
+                }
+            } else {
+                _ = readiness.observe(sameField: false, focusedAndEmpty: false,
+                    now: Date().timeIntervalSince(transitionStarted))
             }
             try await Task.sleep(for: .milliseconds(80))
         }
-        throw FillError.message("The expected empty password field did not appear. Focus it and choose Retry current prompt.")
+        if let observed = PromptTarget.current(requireEmpty: false),
+           observed.pid != pid || observed.ownerBundleID != ownerBundleID {
+            throw FillError.message("Password dialog host changed from \(ownerBundleID) to \(observed.ownerBundleID). Focus the field and choose Retry current prompt.")
+        }
+        throw FillError.message("The password field did not become ready. Focus it and choose Retry current prompt.")
+    }
+
+    /// Discover only same-process, same-context secure fields. Multiple matches
+    /// or a replacement request never receive focus or text.
+    private func continuationField() -> PromptTarget? {
+        let application = AXUIElementCreateApplication(pid)
+        var roots = [root]
+        let windows = PromptTarget.attribute(application, kAXWindowsAttribute) as? [AXUIElement] ?? []
+        roots.append(contentsOf: windows.prefix(12))
+        if let focused = PromptTarget.elementAttribute(application, kAXFocusedWindowAttribute) { roots.append(focused) }
+        var matches: [PromptTarget] = []
+        for root in roots {
+            var pending: [(AXUIElement, Int)] = [(root, 0)]
+            var inspected = 0
+            while let (element, depth) = pending.popLast(), inspected < 240 {
+                inspected += 1
+                guard PromptTarget.attribute(element, "AXHidden") as? Bool != true else { continue }
+                if let candidate = PromptTarget.candidate(element, requireEmpty: false),
+                   PromptPolicy.isSameFallbackRequest(originalPID: pid, passwordPID: candidate.pid,
+                       originalBundleID: ownerBundleID, passwordBundleID: candidate.ownerBundleID,
+                       originalContext: contextID, passwordContext: candidate.contextID),
+                   !matches.contains(where: { CFEqual($0.field, candidate.field) }) {
+                    matches.append(candidate)
+                }
+                if depth < 10, let children = PromptTarget.attribute(element, kAXChildrenAttribute) as? [AXUIElement] {
+                    pending.append(contentsOf: children.prefix(60).map { ($0, depth + 1) })
+                }
+            }
+            guard pending.isEmpty else { return nil }
+        }
+        return matches.count == 1 ? matches[0] : nil
     }
 }
 
@@ -409,6 +488,14 @@ enum FillTrigger {
         if let target = PromptTarget.current() { return .password(target) }
         if allowBiometric, let target = BiometricPromptTarget.current() { return .biometric(target) }
         return nil
+    }
+    var requestKey: String {
+        switch self {
+        // This key only suppresses repeat scans; it never authorizes a fill.
+        // A host change must not cause an automatic second face scan either.
+        case .password(let target): return target.contextID
+        case .biometric(let target): return target.contextID
+        }
     }
     var element: AXUIElement {
         switch self { case .password(let target): return target.field; case .biometric(let target): return target.button }

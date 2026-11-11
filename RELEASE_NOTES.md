@@ -1,3 +1,13 @@
+# Faceprint 1.1.3 — test build
+
+- Keep face recognition, password-card mounting, focus and filling inside one attempt. Stop the camera once the enrolled face matches.
+- After selecting Use Password with AXPress, discover the unique same-process/request secure field even when it initially lacks focus (for example Finder focusing its user-name field).
+- Raise its window and request secure-field focus. Wait up to 7 seconds; require the same empty field to keep focus for 500 ms, with at least 750 ms since the transition, before reading or typing the saved password.
+- Suppress a second automatic scan of the same request after a failed continuation, including short AX animation gaps. Use Retry current prompt for an explicit new attempt.
+- Keep the independent automatic Return option after verified filling. No Return is sent to reveal the password card.
+
+Validation: focus-settling/recreated-field and attempt-lifecycle regressions, existing self-tests, build, signature and ZIP verification. Real Finder/Settings animation and focus behavior remain to be verified on the user's Mac.
+
 # Faceprint 1.1.2 — test build
 
 - Recognize Settings authorization when hosted by System Settings, SecurityAgent or LocalAuthentication agents, alongside the Privacy & Security extension.

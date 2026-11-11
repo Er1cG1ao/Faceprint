@@ -64,6 +64,8 @@ The scan does not click anything until your face matches. The transition uses th
 
 Visible supported Touch ID cards can also be discovered before they have keyboard focus. After a face match, Faceprint raises and focuses that card before selecting Use Password. Switching apps during that scan cancels it; multiple simultaneous cards are not chosen automatically.
 
+After a face match the camera stops. Password fallback waits for the same empty secure field to hold keyboard focus for 500 ms (at least 750 ms after switching), with a 7-second timeout. Finder’s user-name field is not used for password input. Failed continuation does not immediately start a second scan; use **Retry current prompt** to retry.
+
 ## Supported dialogs
 
 - Privacy & Security system settings password prompts (extension or native authentication-agent host).

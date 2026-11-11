@@ -41,6 +41,7 @@ final class FillController: ObservableObject {
     private var operation: Task<Void, Never>?
     private var generation = 0
     private var attemptedField: AXUIElement?
+    private var attemptGate = PromptAttemptGate()
     private var timer: Timer?
     private var observers: [NSObjectProtocol] = []
     private var screenObserver: NSObjectProtocol?
@@ -243,6 +244,7 @@ final class FillController: ObservableObject {
     func retry() {
         guard enabled, !busy else { return }
         attemptedField = nil
+        attemptGate.reset()
         runtimeAuthenticationDeferred = false
         status = "Focus the empty system password field."
     }
@@ -318,10 +320,12 @@ final class FillController: ObservableObject {
             return
         }
         guard let trigger = FillTrigger.current(allowBiometric: automaticPasswordFallback) else {
+            _ = attemptGate.observe(nil, now: Date.timeIntervalSinceReferenceDate)
             if let diagnostic = PromptTarget.diagnosticSummary() { promptStatus = diagnostic }
             return
         }
         promptStatus = "Recognized \(trigger.description) prompt."
+        guard attemptGate.observe(trigger.requestKey, now: Date.timeIntervalSinceReferenceDate) else { return }
         if let attemptedField, CFEqual(attemptedField, trigger.element) { return }
         guard trigger.verifyAppleSignature() else {
             status = "The focused field's Apple signature could not be verified."
@@ -382,7 +386,9 @@ final class FillController: ObservableObject {
                     }
                     guard consecutiveMatches >= 3,
                           Date().timeIntervalSince(matchedSince ?? Date()) >= 0.25 else { continue }
-                    status = trigger.isBiometric ? "Face recognized. Selecting Use Password…" : "Face recognized. Filling the password field…"
+                    attemptGate.mark(trigger.requestKey)
+                    camera.stop()
+                    status = trigger.isBiometric ? "Face recognized. Waiting for the password field to focus…" : "Face recognized. Filling the password field…"
                     let target = try await trigger.passwordTargetAfterRecognition()
                     try Task.checkCancellation()
                     // One attempt includes both stages. Do not immediately rescan
