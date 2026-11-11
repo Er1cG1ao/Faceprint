@@ -62,6 +62,8 @@ Unlock settings, turn filling off in General, and enable **Scan Touch ID prompts
 
 The scan does not click anything until your face matches. The transition uses the explicit Accessibility button action, with no speculative Return. The resulting field must be empty, owned by the same signed Apple process, and match the original request. A changed request, unavailable button, timeout or failed verification stops the flow. If macOS uses a different host during fallback or exposes different wording, use the manual password-entry path. This version supports English Touch ID wording for the existing supported dialog types.
 
+Visible supported Touch ID cards can also be discovered before they have keyboard focus. After a face match, Faceprint raises and focuses that card before selecting Use Password. Switching apps during that scan cancels it; multiple simultaneous cards are not chosen automatically.
+
 ## Supported dialogs
 
 - Privacy & Security system settings password prompts.

@@ -84,6 +84,10 @@ enum FaceprintSelfTest {
         precondition(PromptPolicy.biometricContext(in: privacyBiometric, ownerBundleID: "example.fake") == nil)
         precondition(PromptPolicy.biometricContext(in: privacyBiometric.filter { $0 != "Use Password…" }, ownerBundleID: PromptPolicy.privacyBundleID) == nil)
         precondition(PromptPolicy.biometricContext(in: privacyBiometric.filter { !$0.contains("Touch ID") }, ownerBundleID: PromptPolicy.privacyBundleID) == nil)
+        let unlockBiometric = privacyBiometric.map { $0.replacingOccurrences(of: "modify your system settings", with: "unlock system settings") }
+        precondition(PromptPolicy.biometricContext(in: unlockBiometric, ownerBundleID: PromptPolicy.privacyBundleID) == "privacy")
+        let unrelatedPrivacy = privacyBiometric.map { $0.replacingOccurrences(of: "modify your system settings", with: "change an unrelated account") }
+        precondition(PromptPolicy.biometricContext(in: unrelatedPrivacy, ownerBundleID: PromptPolicy.privacyBundleID) == nil)
         let autofillBiometric = ["AutoFill for “Example Browser”", "Use Touch ID to continue with Passwords.", "Use Password...", "Cancel"]
         precondition(PromptPolicy.biometricContext(in: autofillBiometric, ownerBundleID: "com.apple.LocalAuthentication.UIAgent") == "autofill:example browser")
         for title in ["Unlock to modify Faceprint settings", "Resume Faceprint autofill", "Authorize another app"] {

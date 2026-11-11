@@ -1,3 +1,12 @@
+# Faceprint 1.1.1
+
+- Recognize Privacy & Security’s “unlock system settings” Touch ID wording as well as “modify your system settings”.
+- Discover visible supported Touch ID cards even when their controls are not focused. After a successful face match, activate and raise the verified card, focus its fallback control, and select Use Password. No blind Return or click coordinates are used.
+- Abort if the user changes apps during a background-card scan, the request disappears, or several cards are ambiguous. Recheck the focused Apple-signed card before switching; preserve same-request empty-field checks before filling.
+- Normalize the Icon Composer PNG into standard inset ICNS sizes with dimension-checked ICNS slots, removing the invalid 64px image in the 48px icp6 slot and full-bleed legacy artwork. About uses the original rounded branding image separately.
+
+Build and regression tests cover the reported wording and prior request exclusions. Real Touch ID card discovery/focus and system icon rendering still require verification on the user’s Mac. Existing Scan Touch ID prompts and automatic Return options remain independent and unchanged.
+
 # Faceprint 1.1.0
 
 - Add opt-in Scan Touch ID prompts under Recognition (off by default, protected by the settings edit lock).

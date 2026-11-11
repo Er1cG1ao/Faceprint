@@ -343,7 +343,7 @@ struct SetupView: View {
 
     private var aboutPage: some View {
         VStack(spacing: 16) {
-            Image(nsImage: NSImage(contentsOf: Bundle.main.url(forResource: "Faceprint", withExtension: "icns") ?? URL(fileURLWithPath: "/")) ?? NSApp.applicationIconImage)
+            Image(nsImage: NSImage(contentsOf: Bundle.main.url(forResource: "FaceprintBrand", withExtension: "png") ?? URL(fileURLWithPath: "/")) ?? NSApp.applicationIconImage)
                 .resizable().scaledToFit().frame(width: 80, height: 80)
                 .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
             VStack(spacing: 5) {

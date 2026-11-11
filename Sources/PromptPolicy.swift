@@ -45,7 +45,8 @@ extension PromptPolicy {
         guard normalized.contains(where: isPasswordFallbackButton), normalized.contains("cancel"),
               text.contains("touch id"), !text.contains("faceprint") else { return nil }
         if ownerBundleID == privacyBundleID {
-            guard text.contains("privacy & security"), text.contains("modify your system settings") else { return nil }
+            guard text.contains("privacy & security"),
+                  (text.contains("modify your system settings") || text.contains("unlock system settings")) else { return nil }
             return "privacy"
         }
         guard autofillBundleIDs.contains(ownerBundleID), text.contains("passwords"),

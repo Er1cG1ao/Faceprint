@@ -200,7 +200,7 @@ struct PromptTarget {
     }
 }
 
-/// A focused Touch ID card and its explicit password-fallback control. No
+/// A visible Touch ID card and its explicit password-fallback control. No
 /// keyboard Return is sent to discover the password stage or confirm a request.
 struct BiometricPromptTarget {
     let root: AXUIElement
@@ -209,9 +209,12 @@ struct BiometricPromptTarget {
     let ownerBundleID: String
     let contextID: String
 
+    // Preserve the user's app choice during a scan of a nonfocused card.
+    let discoveryFrontmostPID: pid_t?
+
     var description: String { contextID == "privacy" ? "Privacy & Security Touch ID" : "Passwords AutoFill Touch ID" }
 
-    static func current() -> BiometricPromptTarget? {
+    private static func focused() -> BiometricPromptTarget? {
         guard let focused = PromptTarget.focusedElement(), let bundleID = focused.app.bundleIdentifier,
               focused.app.bundleURL?.path.hasPrefix("/System/") == true,
               bundleID == PromptPolicy.privacyBundleID || PromptPolicy.autofillBundleIDs.contains(bundleID) else { return nil }
@@ -229,9 +232,58 @@ struct BiometricPromptTarget {
             guard let button = fallbackButton(in: root),
                   let context = PromptPolicy.biometricContext(in: PromptTarget.dialogText(root), ownerBundleID: bundleID) else { continue }
             return BiometricPromptTarget(root: root, button: button, pid: focused.pid,
-                                         ownerBundleID: bundleID, contextID: context)
+                                         ownerBundleID: bundleID, contextID: context, discoveryFrontmostPID: nil)
         }
         return nil
+    }
+
+    static func current() -> BiometricPromptTarget? {
+        if let target = focused() { return target }
+        guard AXIsProcessTrusted() else { return nil }
+        let frontmostPID = NSWorkspace.shared.frontmostApplication?.processIdentifier
+        var candidates: [BiometricPromptTarget] = []
+        for app in NSWorkspace.shared.runningApplications {
+            guard let bundleID = app.bundleIdentifier,
+                  bundleID == PromptPolicy.privacyBundleID || PromptPolicy.autofillBundleIDs.contains(bundleID),
+                  app.bundleURL?.path.hasPrefix("/System/") == true, !app.isHidden else { continue }
+            let application = AXUIElementCreateApplication(app.processIdentifier)
+            guard let windows = PromptTarget.attribute(application, kAXWindowsAttribute) as? [AXUIElement] else { continue }
+            for window in windows.prefix(12) where visible(window, pid: app.processIdentifier) {
+                guard let button = fallbackButton(in: window),
+                      let context = PromptPolicy.biometricContext(in: PromptTarget.dialogText(window), ownerBundleID: bundleID) else { continue }
+                candidates.append(BiometricPromptTarget(root: window, button: button, pid: app.processIdentifier,
+                    ownerBundleID: bundleID, contextID: context, discoveryFrontmostPID: frontmostPID))
+            }
+        }
+        // Never choose between multiple simultaneous authentication requests.
+        return candidates.count == 1 ? candidates[0] : nil
+    }
+
+    private static func visible(_ window: AXUIElement, pid: pid_t) -> Bool {
+        guard PromptTarget.attribute(window, kAXMinimizedAttribute) as? Bool != true,
+              PromptTarget.attribute(window, "AXHidden") as? Bool != true,
+              let windows = CGWindowListCopyWindowInfo(.optionOnScreenOnly, kCGNullWindowID) as? [[String: Any]] else { return false }
+        var axFrame: CGRect?
+        if let position = PromptTarget.attribute(window, kAXPositionAttribute),
+           let size = PromptTarget.attribute(window, kAXSizeAttribute),
+           CFGetTypeID(position) == AXValueGetTypeID(), CFGetTypeID(size) == AXValueGetTypeID() {
+            var origin = CGPoint.zero
+            var dimensions = CGSize.zero
+            if AXValueGetValue(position as! AXValue, .cgPoint, &origin),
+               AXValueGetValue(size as! AXValue, .cgSize, &dimensions), dimensions.width > 0, dimensions.height > 0 {
+                axFrame = CGRect(origin: origin, size: dimensions)
+            }
+        }
+        return windows.contains { info in
+            guard (info[kCGWindowAlpha as String] as? Double ?? 1) > 0 else { return false }
+            if (info[kCGWindowOwnerPID as String] as? NSNumber)?.int32Value == pid { return true }
+            // XPC-hosted Settings cards can be drawn by System Settings rather
+            // than their AX owner. Require matching on-screen window geometry.
+            guard let axFrame, let bounds = info[kCGWindowBounds as String] as? NSDictionary,
+                  let frame = CGRect(dictionaryRepresentation: bounds) else { return false }
+            return abs(frame.minX - axFrame.minX) <= 12 && abs(frame.minY - axFrame.minY) <= 12
+                && abs(frame.width - axFrame.width) <= 24 && abs(frame.height - axFrame.height) <= 24
+        }
     }
 
     private static func fallbackButton(in root: AXUIElement) -> AXUIElement? {
@@ -261,6 +313,14 @@ struct BiometricPromptTarget {
     }
 
     func isCurrent() -> Bool {
+        if let discoveryFrontmostPID {
+            guard NSWorkspace.shared.frontmostApplication?.processIdentifier == discoveryFrontmostPID,
+                  let app = NSRunningApplication(processIdentifier: pid), !app.isHidden,
+                  app.bundleIdentifier == ownerBundleID, Self.visible(root, pid: pid),
+                  let liveButton = Self.fallbackButton(in: root), CFEqual(liveButton, button),
+                  PromptPolicy.biometricContext(in: PromptTarget.dialogText(root), ownerBundleID: ownerBundleID) == contextID else { return false }
+            return true
+        }
         guard let focused = PromptTarget.focusedElement(), focused.pid == pid,
               focused.app.bundleIdentifier == ownerBundleID,
               PromptTarget.attribute(button, kAXEnabledAttribute) as? Bool == true,
@@ -280,10 +340,29 @@ struct BiometricPromptTarget {
 
     func openPasswordField() async throws -> PromptTarget {
         try Task.checkCancellation()
-        guard isCurrent(), verifyAppleSignature(), let current = Self.current(),
-              current.pid == pid, current.contextID == contextID,
-              CFEqual(current.root, root), CFEqual(current.button, button) else {
+        guard isCurrent(), verifyAppleSignature() else {
             throw FillError.message("Touch ID prompt changed. Password fallback was not selected.")
+        }
+        // Only raise the authenticated card after the enrolled face matches.
+        // Input remains forbidden until macOS confirms the expected focused card.
+        if discoveryFrontmostPID != nil {
+            NSRunningApplication(processIdentifier: pid)?.activate(options: [])
+            AXUIElementPerformAction(root, kAXRaiseAction as CFString)
+            AXUIElementSetAttributeValue(button, kAXFocusedAttribute as CFString, kCFBooleanTrue)
+        }
+        let focusDeadline = Date().addingTimeInterval(1.5)
+        var focusedCard: BiometricPromptTarget?
+        repeat {
+            try Task.checkCancellation()
+            if let current = Self.focused(), current.pid == pid, current.contextID == contextID,
+               CFEqual(current.button, button), current.verifyAppleSignature() {
+                focusedCard = current
+                break
+            }
+            try await Task.sleep(for: .milliseconds(80))
+        } while Date() < focusDeadline
+        guard focusedCard != nil else {
+            throw FillError.message("The Touch ID card could not be focused. Select it and retry.")
         }
         guard AXUIElementPerformAction(button, kAXPressAction as CFString) == .success else {
             throw FillError.message("Use Password could not be selected. Open the password field manually.")
