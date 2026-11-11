@@ -1,0 +1,84 @@
+# Faceprint 使用教程
+
+[项目主页](../README.zh-CN.md) · [English](TUTORIAL.md) · **简体中文**
+
+## 首次设置
+
+从 [Releases](https://github.com/Er1cG1ao/faceprint/releases) 下载 ZIP，退出旧版，解压并将 Faceprint 放入 Applications。发布的 Beta 需要 Apple Silicon 和 macOS 15+，使用临时签名，尚未经过 Apple 公证。
+
+首次启动会申请摄像头权限，并提示开启辅助功能权限。在 **Startup & Permissions** 中查看状态：摄像头用于本地识别，辅助功能用于读取支持的系统弹窗并输入密码。如果权限被拒绝，使用对应按钮前往系统设置授权，再返回 Faceprint 刷新状态。
+
+点击 **Unlock session** 并完成 macOS 身份验证。选择摄像头，可先用 **Test camera** 检查画面，**Stop camera** 结束预览。点击 **Enroll my face**，按照圆环完成九方向录入，轻缓转头并保持每个方向；每个方向采集两个样本。之后在软件中保存 Mac 登录密码。
+
+## 先测试一个字符
+
+1. 保持 **Test mode — fill a single x after recognizing me** 开启。
+2. 打开 **Enable face-assisted filling**。
+3. 打开支持的系统密码弹窗；必要时先点 **Use Password…**，让空密码框获得焦点。
+4. 看向摄像头。识别成功后会填入一个 `x`，确认出现一个密码圆点，然后点击 Cancel。
+5. 关闭填写，取消 Test mode，再重新启用填写，即可使用保存的密码。
+
+打开密码输入界面的步骤由你手动完成。Faceprint 对同一个输入框只尝试一次；失败后可在菜单栏选择 **Retry current prompt**，或在失败灵动岛仍显示时悬停鼠标以重试。
+
+## 会话与日常使用
+
+**Unlock session** 通过 macOS 的用户在场验证，授权当前会话读取加密保存的人脸模板与密码。每次打开应用或会话重新锁定后，都需要先解锁；同一已解锁会话中的后续填写可以继续使用保存的数据。
+
+锁屏、睡眠、切换用户会话、退出软件，或 30 分钟没有使用加密数据后，会话会重新锁定。点击 **Lock session** 会立即锁定并关闭填写；再次使用时解锁会话并启用填写即可。
+
+关闭设置窗口后，Faceprint 继续在菜单栏运行；点击菜单中的 **Open Faceprint…** 可重新打开。选择 **Quit Faceprint** 才会退出并锁定数据。
+
+在 **Startup & Permissions** 中开启 **Launch Faceprint at login** 可注册 macOS 登录项，请先将应用放入 Applications。如果系统需要批准，点击 **Open Login Items**；关闭开关则取消注册。登录时启动不会自动解锁保存的数据，也不会自动启用填写。
+
+## 识别与确认选项
+
+请先关闭填写，再调整以下设置：
+
+| 设置 | 行为 |
+| --- | --- |
+| Dynamic Island：Original / Minimal | 选择灵动岛外观，可点击 Preview Dynamic Island 预览。 |
+| Test mode | 只输入 `x`，不会自动回车；每次启动应用时默认开启。 |
+| Passive photo checks (Glance Light) | 可选的明显屏幕反光、脸周围设备边框检查，不要求主动眨眼或转头；启动时默认关闭。 |
+| Press Return automatically after filling | 默认关闭。开启后，只有真实密码填入验证成功，且再次检查目标后才发送回车。 |
+
+关闭自动回车时，请自行检查请求并点击 **Modify Settings** 或 **OK**。开启后，软件可能直接确认当前具有管理员权限的操作。输入长度验证只确认填入情况；密码是否正确由系统判断。
+
+照片检查可能误判真人，也无法可靠防住回放攻击。普通 RGB 人脸识别可能接受照片或录像，关闭检查时尤其如此。
+
+## 支持的弹窗
+
+- “隐私与安全性”的系统设置密码弹窗。
+- 原生“密码”AutoFill 身份验证，包括 Dia 的 AutoFill；目前依赖英文弹窗文字，并检查当前账户。
+
+软件检查受支持的 Apple 进程与弹窗上下文。任意网页密码框、锁屏解锁、通行密钥和 Apple Pay 授权不在本 Beta 的支持流程内。
+
+## 常见问题
+
+| 现象 | 检查方法 |
+| --- | --- |
+| 摄像头没有画面 | 检查摄像头权限，选择正确设备，运行 Test camera。 |
+| 录入中断 | 保持稳定光线和适当距离，轻缓转头。超时后重新开始。Beta 2 针对摄像头启动崩溃进行了修复；若仍崩溃，请提供版本与步骤。 |
+| 没有触发识别 | 检查会话已解锁、人脸已录入、辅助功能已允许、填写已启用，并让支持的空密码框获得焦点。 |
+| Dia 有效，其他弹窗无效 | 确认是否属于支持范围、是否使用英文文字；反馈时注明弹窗类型并移除私人信息。 |
+| 失败后不重试 | 使用 Retry current prompt，或悬停失败灵动岛。 |
+| 睡眠后会话锁定 | 这是预期行为，解锁会话并重新启用填写。 |
+| 无法启用开机自启 | 将应用放入 Applications，并检查系统设置中的登录项批准状态。 |
+| 密码填入但系统拒绝 | 检查保存的 Mac 登录密码。软件检查填入情况，macOS 检查密码。 |
+
+## 本地数据与隐私
+
+摄像头画面在本机内存中处理。人脸特征和密码分别以 AES-GCM 加密。受用户在场验证保护的 Secure Enclave P-256 密钥通过 ECDH 与 HKDF-SHA256 派生会话密钥。
+
+为兼容旧版本，保存路径沿用原型名称：
+
+```text
+~/Library/Application Support/GlanceFill/vault-v1.json
+```
+
+偏好设置使用 `io.github.er1cg1ao.faceprint` 域。硬件密钥材料绑定当前设备，复制 vault 不属于支持的数据迁移方式。其他进程获得不透明的密钥表示后可能发起身份验证请求，但派生会话密钥仍需通过硬件强制的用户在场检查。
+
+**Remove saved data…** 会经过确认后移除保存的人脸和密码。若要停止开机自启，请在移除软件前单独关闭该开关。
+
+反馈问题时请提供应用及系统版本、摄像头型号、复现步骤和状态提示，不要附上密码、vault 文件、人脸模板或摄像头录像。
+
+[开发说明](DEVELOPMENT.md) · [第三方声明](../THIRD_PARTY_NOTICES.md)

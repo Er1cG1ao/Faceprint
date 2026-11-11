@@ -1,57 +1,63 @@
+<p align="center">
+  <img src="Branding/Faceprint.png" width="128" alt="Faceprint app icon">
+</p>
+
 # Faceprint
 
-<img src="Branding/Faceprint.png" width="104" alt="Faceprint app icon">
+**Your face, fewer passwords to type.**
 
-**Faceprint 0.1.1-beta.2** brings local face recognition to macOS password prompts. It recognizes your enrolled face, fills your saved Mac password, and can optionally press Return after verifying the fill.
+A native macOS menu bar app that recognizes your face and fills your saved Mac password into supported system prompts. Open the password field, look at the camera, and review the request. A Dynamic Island shows the recognition result along the way.
 
-Faceprint is built on **Glance**, created by **Jonathan Zhou**, with substantial direct reuse of its recognition, enrollment, and Dynamic Island code and assets. Full attribution and the original MIT license are included in this repository and the app. [Glance](https://github.com/jonnyoo/glance) · [Third-party notices](THIRD_PARTY_NOTICES.md)
+**English** · [简体中文](README.zh-CN.md)
 
-## Features
+[Download Beta](https://github.com/Er1cG1ao/faceprint/releases/tag/v0.1.1-beta.2) · [User guide](Docs/TUTORIAL.md) · [Development](Docs/DEVELOPMENT.md) · [Report an issue](https://github.com/Er1cG1ao/faceprint/issues)
 
-- Local ArcFace recognition with Glance's nine-direction, 18-sample enrollment.
-- Original and Minimal Dynamic Island styles, with the upstream scanning and result animations.
-- Password filling for Privacy & Security and native Passwords AutoFill prompts, including AutoFill for Dia.
-- Optional automatic Return after a verified real-password fill, off by default.
-- Test mode that fills a single `x` and always leaves confirmation to you.
-- Launch at login through macOS Login Items, with an explicit opt-in switch.
-- First-launch Camera and Accessibility permission requests, with visible permission status.
-- Encrypted password and face templates, with a Secure Enclave protected session key.
+Built on [**Glance by Jonathan Zhou**](https://github.com/jonnyoo/glance), with direct reuse of its face recognition, guided enrollment, and Dynamic Island code and assets. Original attribution is preserved in the app and [third-party notices](THIRD_PARTY_NOTICES.md).
 
-## Download and run
+## What it does
 
-Download the Apple Silicon app ZIP from Releases, extract it, and place Faceprint.app in a stable location such as Applications before granting permissions. The beta is locally ad-hoc signed. [Releases](https://github.com/Er1cG1ao/faceprint/releases)
+- **Enroll from nine directions:** capture 18 face samples through Glance's guided ring and camera preview, using the same ArcFace model.
+- **Fill supported prompts:** works with Privacy & Security and native Passwords AutoFill dialogs, including AutoFill for Dia.
+- **See recognition at a glance:** choose Original or Minimal Dynamic Island animations, on displays with or without a notch.
+- **Choose when to confirm:** review and submit yourself, or opt into automatic Return after a verified fill. Test mode types only `x` and never submits.
+- **Keep saved data protected:** encrypt the password and face template locally, with a Secure Enclave protected session opened through macOS authentication.
+- **Set up once:** first-launch permission requests, visible permission status, camera selection, and optional launch at login.
 
-1. Put Faceprint in Applications and open it. On first launch it requests Camera and Accessibility access; approve those in macOS. The Startup & Permissions section shows anything still needed.
-2. Click Unlock session and complete the macOS authentication request. This authorizes local access to your encrypted saved data until the session locks.
-3. Select your camera, allow Camera access, and enroll your face using the nine-direction guide.
-4. Save your Mac login password in Faceprint, and grant it Accessibility access.
-5. Keep Test mode enabled for the first test, then enable face-assisted filling.
-6. Open a supported system password prompt yourself and select Use Password… so the empty password field is focused. Faceprint starts recognition automatically.
-7. Check for one dot and click Cancel. After that test works, turn filling off, turn Test mode off, and enable filling again.
+Built with Swift, SwiftUI, AppKit, AVFoundation, and Core ML. Face processing runs locally. The app interface currently uses English; documentation is available in English and Simplified Chinese.
 
-Dynamic Island style and automatic Return can be changed while filling is disabled. With automatic Return off, review the request and click Modify Settings or OK yourself. With it on, Faceprint confirms the current supported dialog after verifying that the password field received the expected text length. Test mode never sends Return.
+### Current beta: 0.1.1 Beta 2
 
-Enable **Launch Faceprint at login** under Startup & Permissions to register it with macOS. If macOS requires approval, use Open Login Items. Turning the switch off unregisters it. Login launch does not unlock the encrypted vault or enable filling automatically.
+Adds the Faceprint icon, launch-at-login settings, and first-launch permission guidance. Also addresses the enrollment camera-start crash and restores the settings window after session authentication. Build and self-tests pass; full enrollment and window-focus behavior still need user testing. See [release notes](RELEASE_NOTES.md).
 
-## Beta scope
+## Install and start
 
-This build targets Apple Silicon and macOS 15 or later. Native Passwords AutoFill matching currently uses the English dialog wording. Supported processes and context checks are defined in PromptPolicy.swift and PromptTarget.swift. A filled status verifies field input. The system dialog determines whether the password is correct and whether the requested action succeeds.
+Requires **Apple Silicon (M-series), macOS 15 or later**. Intel builds are not currently distributed.
 
-Recognition uses an ordinary RGB camera. Default face matching can accept photos or replayed video. Optional passive photo checks use Glance's Light mode and do not require blinking or head turns. Automatically confirming administrator prompts can apply privileged changes, so review that setting for your use.
+1. Download `Faceprint-0.1.1-beta.2-macos-arm64.zip` from **Assets** on the [beta release](https://github.com/Er1cG1ao/faceprint/releases/tag/v0.1.1-beta.2).
+2. Quit the old version, extract the ZIP, and move `Faceprint.app` into **Applications** before granting permissions or enabling launch at login.
+3. Open Faceprint and allow **Camera** and **Accessibility** access. Click **Unlock session** and complete the macOS authentication request.
+4. Select your camera, enroll your face with the nine-direction guide, and save your Mac login password.
+5. Leave **Test mode** on and enable filling. Open a supported prompt, select **Use Password…** if needed, and focus the empty password field. Check for one dot, then click Cancel.
+6. Once that test works, disable filling, turn Test mode off, and enable filling again.
 
-The beta uses InsightFace pretrained weights through Glance. Those weights have separate non-commercial research terms. The MIT license for the code does not add rights to the pretrained weights. [Third-party notices](THIRD_PARTY_NOTICES.md)
+Keep Faceprint running. Closing Settings leaves it in the menu bar; quitting stops recognition and locks the session. Launch at login opens the app with saved data locked. See the [guide](Docs/TUTORIAL.md) for sessions, automatic Return, photo checks, and troubleshooting.
 
-## Local data
+Distributed betas use ad hoc signing and are **not Apple-notarized**.
 
-Camera images are processed locally in memory. Face embeddings and the saved password are encrypted separately with AES-GCM. A user-presence-protected Secure Enclave P-256 key derives the session key through ECDH and HKDF-SHA256. Sessions lock after 30 minutes without secret use, on screen lock, sleep, user-session switch, or quit.
+## Scope and privacy
 
-The renamed app retains the prototype's local vault location and key-derivation context so existing enrolled faces and passwords can be opened. The vault is under `~/Library/Application Support/GlanceFill/vault-v1.json`. Fresh Faceprint preferences use `io.github.er1cg1ao.faceprint`. The opaque hardware-key representation is device-bound. Possession of it can let another process initiate an authentication request, and deriving the session key still requires the hardware-enforced user-presence check.
+- Supports specific Apple system password dialogs. Faceprint fills the password fallback after you open it; it does not replace macOS Touch ID, unlock the lock screen, or provide Face ID hardware.
+- Recognition uses an ordinary RGB camera. **Photos or replayed video can be accepted.** Optional Glance Light photo checks reject some obvious spoofs and can also misidentify real users; they do not provide reliable replay protection.
+- Native Passwords AutoFill matching currently relies on English dialog wording. A verified fill checks input length; macOS decides whether the password is correct and whether the action succeeds.
+- Automatic Return is **off by default**. Enabling it can confirm a privileged settings change. Test mode always leaves confirmation to you.
+- Camera images are processed in memory. Saved face embeddings and the password are encrypted on your Mac. Sessions lock on screen lock, sleep, user-session switch, quit, or 30 minutes without secret use. See [local data and privacy](Docs/TUTORIAL.md#local-data-and-privacy).
+- InsightFace pretrained weights carry separate **non-commercial research terms**. The code's MIT license does not grant additional rights to the model. See [third-party notices](THIRD_PARTY_NOTICES.md).
 
-## Build
+## Build from source
 
-Install Apple Command Line Tools on an Apple Silicon Mac and have Glance installed locally. The setup script imports the same compiled model and scan-animation assets from that installation. Runtime binaries are excluded from the source repository.
+Install current Apple Command Line Tools on an Apple Silicon Mac and have Glance installed locally for its compiled model and animation assets.
 
-```bash
+```sh
 git clone https://github.com/Er1cG1ao/faceprint.git
 cd faceprint
 bash setup-resources.sh
@@ -59,8 +65,14 @@ bash build.sh
 bash test.sh
 ```
 
-Pass another Glance app path to `setup-resources.sh` if needed. The output is `Faceprint.app`. Source under `Sources/Upstream` is reused or adapted from Glance revision `b97f521397ec1197ba17768ba797cae1e628848d`.
+Output: `Faceprint.app`. Building does not install or publish it. Resource import, source layout, tests, and packaging are documented in [Development](Docs/DEVELOPMENT.md).
 
-## License and acknowledgements
+## Help and contribute
 
-Faceprint code is MIT licensed, with the original Glance notice preserved for reused components. Thanks to Jonathan Zhou for Glance and to InsightFace's authors for the face-recognition model. Model terms are listed separately. [MIT license](LICENSE) · [Glance license](LICENSE-Glance.txt) · [Third-party notices](THIRD_PARTY_NOTICES.md)
+Open an [Issue](https://github.com/Er1cG1ao/faceprint/issues) with the Faceprint version, macOS version, camera model, reproduction steps, and expected versus actual behavior. Remove private information from logs and screenshots. **Never upload passwords, face templates, camera recordings, or the local vault.**
+
+[English guide](Docs/TUTORIAL.md) · [中文教程](Docs/TUTORIAL.zh-CN.md) · [Development](Docs/DEVELOPMENT.md) · [Release notes](RELEASE_NOTES.md)
+
+## License and origins
+
+[MIT](LICENSE) for Faceprint code, with [Glance's original MIT notice](LICENSE-Glance.txt) preserved for reused components. Thanks to **Jonathan Zhou** for Glance and to **InsightFace's authors** for the face-recognition model. The Faceprint icon was created with AI image generation; its source artwork is in [`Branding/Faceprint.png`](Branding/Faceprint.png). See [third-party notices](THIRD_PARTY_NOTICES.md) for upstream revisions and model terms.
