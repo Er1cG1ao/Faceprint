@@ -1,4 +1,4 @@
-# Faceprint 1.2.1 — test build
+# Faceprint 1.2.1
 
 - Address the host handoff shown in the 1.2.0 diagnostic trace: com.apple.systempreferences owns the Touch ID card and com.apple.settings.PrivacySecurity.extension owns the focused password field. The generic cross-host window/geometry test rejected continuation before input.
 - Permit only this directed native delegation after a successful explicit Use Password action, for the same Privacy context, with an empty currently focused secure field and a valid Apple signature. Require System Settings/the extension to be foreground, or the original requester to remain unchanged in front. Cross-XPC window metadata is not required for this fixed pair; other handoffs retain existing checks.

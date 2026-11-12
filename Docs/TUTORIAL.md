@@ -2,7 +2,7 @@
 
 [Home](../README.md) · **English** · [简体中文](TUTORIAL.zh-CN.md)
 
-This guide describes the 1.2.1 development/test build; the published stable release may expose fewer features.
+This guide describes Faceprint 1.2.1.
 
 ## Set up
 

@@ -17,7 +17,7 @@
 ## 能做什么
 
 - **九方向人脸录入：** 通过 Glance 的引导圆环与摄像头预览采集 18 个样本，使用相同的 ArcFace 模型。
-- **填写系统密码弹窗：** 支持“隐私与安全性”及原生“密码”自动填充验证，包括 Dia 的 AutoFill 弹窗。
+- **填写系统密码弹窗：** 支持可识别的原生 Mac 账户授权，包括“隐私与安全性”、Finder、安装器及 Dia 的原生 Passwords AutoFill 弹窗。
 - **灵动岛状态反馈：** 提供 Original 与 Minimal 两种动画样式，兼容有刘海和无刘海的显示器。
 - **自主选择提交方式：** 默认填完后手动确认，也可开启验证填入后自动回车。
 - **本地加密保存：** 密码和人脸模板在本机加密，通过 macOS 验证打开受 Secure Enclave 保护的会话。
@@ -25,15 +25,15 @@
 
 使用 Swift、SwiftUI、AppKit、AVFoundation 和 Core ML 构建，人脸处理在本机完成。软件界面目前为英文，文档提供英文和简体中文。
 
-### 当前正式版：1.1.0
+### 当前正式版：1.2.1
 
-新增可选的 **Scan Touch ID prompts**：受支持的指纹提示出现后先扫脸，通过后选择 **Use Password…**，再检查并填入空密码框。配合自动回车可完成最后提交。两个开关独立控制，指纹框扫描默认关闭。详见[版本说明](RELEASE_NOTES.md)。
+扩大原生授权场景，修复 System Settings → Privacy & Security 密码框接续，并优化识别、填写和灵动岛的响应。新增 **Copy diagnostics**，可复制最近一次操作的阶段耗时。**Scan Touch ID prompts** 与 **Press Return after filling** 仍独立控制、新安装默认关闭。详见[版本说明](RELEASE_NOTES.md)和[性能说明](Docs/PERFORMANCE.md)。
 
 ## 安装与开始使用
 
 需要 **Apple Silicon（M 系列）Mac、macOS 15 或更新版本**，目前不提供 Intel 安装包。
 
-1. 在 [最新发布页](https://github.com/Er1cG1ao/faceprint/releases/latest)的 **Assets** 中下载 `Faceprint-1.1.0-macos-arm64.zip`。
+1. 在 [最新发布页](https://github.com/Er1cG1ao/faceprint/releases/latest)的 **Assets** 中下载 `Faceprint-1.2.1-macos-arm64.zip`。
 2. 退出旧版，解压 ZIP，将 `Faceprint.app` 放入 **Applications（应用程序）**，然后再授权或启用开机自启。
 3. 打开 Faceprint，允许**摄像头**与**辅助功能**权限。点击 **Unlock to edit**，完成 macOS 身份验证。
 4. 在 **Camera** 选择摄像头，在 **Your Face** 按九方向引导录入人脸，在 **Password** 保存 Mac 登录密码。
