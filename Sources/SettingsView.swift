@@ -81,6 +81,11 @@ struct SetupView: View {
                         if controller.enabled {
                             Text(controller.promptStatus).font(.system(size: 11)).foregroundStyle(.secondary)
                                 .fixedSize(horizontal: false, vertical: true).padding(.horizontal, 4)
+                            if !controller.diagnosticTrace.isEmpty {
+                                Button("Copy diagnostics") { controller.copyDiagnostics() }
+                                    .buttonStyle(.link).font(.system(size: 11))
+                                    .help("Copies timing and system-host metadata for the last attempt; no password or face data.")
+                            }
                         }
                     }
                 }
@@ -214,7 +219,7 @@ struct SetupView: View {
             }
             caption(controller.automaticPasswordFallback
                 ? "Supported Touch ID prompts start recognition automatically. After a match, Faceprint selects Use Password and fills."
-                : "Open Use Password… yourself and focus the empty system password field. Faceprint starts recognition when filling is enabled.")
+                : "Open Use Password… yourself. Faceprint can recognize a supported visible empty password field and focus it after a face match.")
         }
     }
 

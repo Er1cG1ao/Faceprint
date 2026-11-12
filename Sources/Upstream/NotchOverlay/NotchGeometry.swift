@@ -67,9 +67,9 @@ struct NotchGeometry {
     // MARK: - Panel open/close springs — EDIT HERE
     //
     // Shared by both styles. Opening overshoots slightly; closing is critically damped.
-    static let openSpringResponse: Double = 0.45
+    static let openSpringResponse: Double = 0.24
     static let openSpringDamping: Double = 0.7
-    static let closeSpringResponse: Double = 0.45
+    static let closeSpringResponse: Double = 0.24
     static let closeSpringDamping: Double = 1.0
 
     // MARK: - Pill enter/exit choreography — EDIT HERE
@@ -78,11 +78,11 @@ struct NotchGeometry {
     // enter slides first then grows; exit shrinks first then slides away.
 
     /// Ease-out rather than a spring — a straight-line move, not a bouncy resize.
-    static let pillSlideDuration: Double = 0.25
+    static let pillSlideDuration: Double = 0.15
     /// Expansion starts this long after the slide begins.
-    static let pillEnterExpansionDelay: Double = 0.16
+    static let pillEnterExpansionDelay: Double = 0.02
     /// Slide starts this long after the shrink begins.
-    static let pillExitSlideDelay: Double = 0.18
+    static let pillExitSlideDelay: Double = 0.04
 
     // MARK: - Minimal unlock style — EDIT HERE
     //
@@ -125,7 +125,7 @@ struct NotchGeometry {
 
     /// So the lock glyph can be nudged to land with the video's own resolve beat.
     static let minimalLockUnlockDelay: Double = 0
-    static let minimalLockAnimationDuration: Double = 0.4
+    static let minimalLockAnimationDuration: Double = 0.18
 
     // MARK: - Scan "breathing" pulse — EDIT HERE
     //
@@ -147,7 +147,7 @@ struct NotchGeometry {
 
     /// Wait before the first pulse cycle so breathing starts only once the panel has
     /// finished expanding. Hand-tuned approximation — springs have no hard end time.
-    static let scanPulseStartDelay: Double = 0.6
+    static let scanPulseStartDelay: Double = 0.04
 
     /// Notch-style padding around scan-mode content. Pill has its own independent set below.
     static let notchContentPaddingTop: CGFloat = 26

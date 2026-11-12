@@ -13,7 +13,7 @@ import AppKit
 /// Which media the overlay is showing. `.idle` is a still image (the first
 /// frame of the success video) so the transition into a playing video is
 /// seamless.
-enum ScanMedia: Equatable {
+enum ScanMedia: Hashable {
     case idle
     case success
     case failure
@@ -43,6 +43,8 @@ struct ScanAnimationView: NSViewRepresentable {
 
 final class ScanAnimationHostView: NSView {
     private var player: AVPlayer?
+    private var preparedPlayers: [ScanMedia: AVPlayer] = [:]
+    private var preparation: [NSKeyValueObservation] = []
     private let playerLayer = AVPlayerLayer()
     private let stillImageLayer = CALayer()
     private var currentMedia: ScanMedia?
@@ -63,6 +65,18 @@ final class ScanAnimationHostView: NSView {
         playerLayer.videoGravity = .resizeAspect
         playerLayer.isHidden = true
         layer?.addSublayer(playerLayer)
+        for media in [ScanMedia.success, .failure] {
+            guard let name = media.videoResourceName, let url = Bundle.main.url(forResource: name, withExtension: "mp4") else { continue }
+            let prepared = AVPlayer(url: url)
+            prepared.isMuted = true
+            prepared.automaticallyWaitsToMinimizeStalling = false
+            preparedPlayers[media] = prepared
+            if let item = prepared.currentItem {
+                preparation.append(item.observe(\.status, options: [.initial, .new]) { [weak prepared] item, _ in
+                    if item.status == .readyToPlay { prepared?.preroll(atRate: 1.25) { _ in } }
+                })
+            }
+        }
     }
 
     required init?(coder: NSCoder) {
@@ -97,7 +111,8 @@ final class ScanAnimationHostView: NSView {
         }
 
         teardownPlayer()
-        let newPlayer = AVPlayer(url: url)
+        let newPlayer = preparedPlayers[media] ?? AVPlayer(url: url)
+        newPlayer.automaticallyWaitsToMinimizeStalling = false
         // This can play at the lock screen — never make noise.
         newPlayer.isMuted = true
         // Leaves the player paused on its final frame rather than rewinding.
@@ -109,7 +124,7 @@ final class ScanAnimationHostView: NSView {
         // Waits for `isReadyForDisplay` rather than a fixed delay, which raced the
         // real decode time and produced a black-frame flash.
         let reveal: () -> Void = { [weak self] in
-            guard let self else { return }
+            guard let self, self.currentMedia == media else { return }
             // Without disabling implicit actions, toggling `isHidden` cross-fades both
             // layers over CALayer's default duration instead of swapping instantly.
             CATransaction.begin()
@@ -118,7 +133,7 @@ final class ScanAnimationHostView: NSView {
             self.stillImageLayer.isHidden = true
             CATransaction.commit()
         }
-        readyObservation = playerLayer.observe(\.isReadyForDisplay, options: [.new]) { [weak self] _, change in
+        readyObservation = playerLayer.observe(\.isReadyForDisplay, options: [.initial, .new]) { [weak self] _, change in
             guard change.newValue == true else { return }
             DispatchQueue.main.async {
                 self?.fallbackRevealWorkItem?.cancel()
@@ -133,7 +148,7 @@ final class ScanAnimationHostView: NSView {
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.6, execute: fallback)
 
         newPlayer.seek(to: .zero)
-        newPlayer.play()
+        newPlayer.playImmediately(atRate: 1.25)
     }
 
     private func teardownPlayer() {

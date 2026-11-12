@@ -1,8 +1,24 @@
 import Foundation
 
+private func executingOnMainThread() -> Bool { Thread.isMainThread }
+
 @main
 enum FaceprintSelfTest {
-    static func main() throws {
+    static func main() async throws {
+        let isBackground = try await performPromptWork { !executingOnMainThread() }
+        precondition(isBackground, "Prompt work must not block main-thread rendering")
+        let cancelled = Task {
+            try await performPromptWork {
+                try await Task.sleep(for: .seconds(10))
+                return true
+            }
+        }
+        cancelled.cancel()
+        do {
+            _ = try await cancelled.value
+            preconditionFailure("Cancelled prompt work must not continue")
+        } catch is CancellationError { }
+        print("PASS background prompt work and cancellation propagation")
         for unlocked in [false, true] {
             for face in [false, true] {
                 for password in [false, true] {
@@ -13,14 +29,27 @@ enum FaceprintSelfTest {
                 }
             }
         }
+        var faceGate = FaceMatchGate()
+        precondition(!faceGate.observe(frame: 1, matched: true))
+        precondition(!faceGate.observe(frame: 1, matched: true), "One frame cannot count twice")
+        precondition(!faceGate.observe(frame: 2, matched: false))
+        precondition(!faceGate.observe(frame: 3, matched: true))
+        precondition(faceGate.observe(frame: 4, matched: true))
+        precondition(InputActionPolicy.secureFieldLength(characterCount: 0, value: nil) == 0)
+        precondition(InputActionPolicy.secureFieldLength(characterCount: nil, value: nil) == nil)
+        precondition(InputActionPolicy.secureFieldLength(characterCount: 0, value: "••••") == 4, "A stale zero count must not permit overwriting a nonempty field")
+        precondition(InputActionPolicy.secureFieldLength(characterCount: 4, value: "") == 4)
+        precondition(InputActionPolicy.secureFieldLength(characterCount: -1, value: nil) == nil)
+        print("PASS distinct-frame recognition, reset on mismatch, secure character-count fallback and nonempty rejection")
         var readiness = PasswordFieldReadiness()
-        precondition(!readiness.observe(sameField: false, focusedAndEmpty: true, now: 0.1))
-        precondition(!readiness.observe(sameField: true, focusedAndEmpty: true, now: 0.61), "Initial animation grace must pass")
-        precondition(!readiness.observe(sameField: true, focusedAndEmpty: false, now: 0.7), "Losing focus resets readiness")
-        precondition(!readiness.observe(sameField: true, focusedAndEmpty: true, now: 0.8))
-        precondition(!readiness.observe(sameField: false, focusedAndEmpty: true, now: 1.2), "A recreated field must settle again")
-        precondition(!readiness.observe(sameField: true, focusedAndEmpty: true, now: 1.6))
-        precondition(readiness.observe(sameField: true, focusedAndEmpty: true, now: 1.71))
+        precondition(!readiness.observe(sameField: false, focusedAndEmpty: true, now: 0))
+        precondition(!readiness.observe(sameField: true, focusedAndEmpty: true, now: 0.02))
+        precondition(readiness.observe(sameField: true, focusedAndEmpty: true, now: 0.041), "A focused field needs only a fresh confirmation")
+        precondition(!readiness.observe(sameField: true, focusedAndEmpty: false, now: 0.05))
+        precondition(!readiness.observe(sameField: true, focusedAndEmpty: true, now: 0.06))
+        precondition(!readiness.observe(sameField: false, focusedAndEmpty: true, now: 0.09))
+        precondition(!readiness.observe(sameField: true, focusedAndEmpty: true, now: 0.11))
+        precondition(readiness.observe(sameField: true, focusedAndEmpty: true, now: 0.131))
         var attempts = PromptAttemptGate()
         precondition(attempts.observe("request-a", now: 0))
         attempts.mark("request-a")
@@ -109,7 +138,7 @@ enum FaceprintSelfTest {
         let unlockBiometric = privacyBiometric.map { $0.replacingOccurrences(of: "modify your system settings", with: "unlock system settings") }
         precondition(PromptPolicy.biometricContext(in: unlockBiometric, ownerBundleID: PromptPolicy.privacyBundleID) == "privacy")
         let unrelatedPrivacy = privacyBiometric.map { $0.replacingOccurrences(of: "modify your system settings", with: "change an unrelated account") }
-        precondition(PromptPolicy.biometricContext(in: unrelatedPrivacy, ownerBundleID: PromptPolicy.privacyBundleID) == nil)
+        precondition(PromptPolicy.biometricContext(in: unrelatedPrivacy, ownerBundleID: PromptPolicy.privacyBundleID)?.hasPrefix("native:") == true)
         let autofillBiometric = ["AutoFill for “Example Browser”", "Use Touch ID to continue with Passwords.", "Use Password...", "Cancel"]
         precondition(PromptPolicy.biometricContext(in: autofillBiometric, ownerBundleID: "com.apple.LocalAuthentication.UIAgent") == "autofill:example browser")
         for title in ["Unlock to modify Faceprint settings", "Resume Faceprint autofill", "Authorize another app"] {
@@ -137,7 +166,7 @@ enum FaceprintSelfTest {
         }
         precondition(PromptPolicy.biometricContext(in: finderCard, ownerBundleID: "example.fake") == nil)
         precondition(PromptPolicy.biometricContext(in: finderCard, ownerBundleID: PromptPolicy.privacyBundleID) == nil)
-        precondition(PromptPolicy.biometricContext(in: finderCard.map { $0.replacingOccurrences(of: "Finder", with: "Another App") }, ownerBundleID: "com.apple.SecurityAgent") == nil)
+        precondition(PromptPolicy.biometricContext(in: finderCard.map { $0.replacingOccurrences(of: "Finder", with: "Another App") }, ownerBundleID: "com.apple.SecurityAgent")?.hasPrefix("native:") == true)
         let anotherFile = finderCard.map { $0.replacingOccurrences(of: "Keynote", with: "Other File") }
         precondition(PromptPolicy.biometricContext(in: anotherFile, ownerBundleID: "com.apple.SecurityAgent") != finderContext)
         precondition(!PromptPolicy.isSameFallbackRequest(originalPID: 12, passwordPID: 12, originalBundleID: "com.apple.SecurityAgent", passwordBundleID: "com.apple.SecurityAgent", originalContext: finderContext, passwordContext: "finder-trash:other file"))
@@ -157,6 +186,30 @@ enum FaceprintSelfTest {
         for (context, heading, geometry, gone, signed) in [(false,true,true,true,true), (true,false,true,true,true), (true,true,false,true,true), (true,true,true,false,true), (true,true,true,true,false)] {
             precondition(!PromptPolicy.permitsHostHandoff(sameContext: context, sameHeading: heading, sameWindow: false, matchingFrame: geometry, originalBiometricGone: gone, appleSigned: signed))
         }
+        let installer = ["Installer is trying to install new software.", "Enter an administrator's name and password to allow this.", "Use Password…", "Touch ID or enter your password", "Cancel"]
+        precondition(PromptPolicy.biometricContext(in: installer, ownerBundleID: "com.apple.SecurityAgent")?.hasPrefix("native:installer") == true)
+        precondition(PromptPolicy.systemDialogContext(in: installer.filter { $0 != "Use Password…" && !$0.hasPrefix("Touch ID") }, ownerBundleID: "com.apple.SecurityAgent")?.hasPrefix("native:installer") == true)
+        let external = ["Example App wants to make changes.", "Touch ID or enter your password to continue with “Example App”.", "Use Password…", "Cancel"]
+        precondition(PromptPolicy.biometricContext(in: external, ownerBundleID: "com.apple.LocalAuthentication.UIAgent")?.hasPrefix("native:example app") == true)
+        precondition(PromptPolicy.biometricContext(in: external, ownerBundleID: "example.app") == nil)
+        let continuationOnly = ["Touch ID or enter your password to continue with “Example Service”.", "Use Password…", "Cancel"]
+        precondition(PromptPolicy.biometricContext(in: continuationOnly, ownerBundleID: "com.apple.LocalAuthentication.UIAgent") == "native:macos account authentication for example service")
+        let passwordOnly = ["Enter your password to continue with “Example Service”.", "OK", "Cancel"]
+        precondition(PromptPolicy.systemDialogContext(in: passwordOnly, ownerBundleID: "com.apple.LocalAuthentication.UIAgent") == "native:macos account authentication for example service")
+        precondition(PromptPolicy.nativeAuthenticationContext(in: continuationOnly + ["Enter your password to continue with “Another Service”."], ownerBundleID: "com.apple.LocalAuthentication.UIAgent") == nil)
+        precondition(PromptPolicy.supportsOwner("com.apple.settings.Network.extension"))
+        let network = ["Network wants to make changes.", "Touch ID or enter your password to continue with “Network”.", "Enter Password…", "Cancel"]
+        precondition(PromptPolicy.biometricContext(in: network, ownerBundleID: "com.apple.settings.Network.extension")?.hasPrefix("native:network") == true)
+        precondition(PromptPolicy.biometricContext(in: external, ownerBundleID: "com.apple.settings.Network.extension") == nil)
+        let settingsHost = unlockBiometric.map { $0.replacingOccurrences(of: "Privacy & Security", with: "System Settings") }
+        precondition(PromptPolicy.biometricContext(in: settingsHost, ownerBundleID: "com.apple.LocalAuthentication.UIAgent") == "privacy")
+        precondition(PromptPolicy.compatibleHeadings("system settings is trying to unlock system settings.", "privacy & security is trying to modify your system settings.", context: "privacy"))
+        for secret in ["keychain", "Apple Account", "Apple ID", "recovery key", "passcode", "Apple Pay", "disk password"] {
+            precondition(PromptPolicy.nativeAuthenticationContext(in: external + [secret], ownerBundleID: "com.apple.SecurityAgent") == nil)
+        }
+        precondition(!PromptPolicy.compatibleHeadings("privacy & security is trying to unlock system settings.", "example app wants to make changes.", context: "privacy"))
+        precondition(PromptPolicy.compatibleHeadings("privacy & security is trying to unlock system settings.", "privacy & security is trying to modify your system settings.", context: "privacy"))
+        print("PASS native installer/app authentication, wrong-host/credential exclusions and Settings wording handoff")
         print("PASS Finder changes/undo stages, ambiguous headings, and constrained signed-host handoff")
         print("PASS Settings extension/agent hosts, Finder trash context, wrong host/app and changed-file rejection")
         print("PASS Touch ID prompt scope, fallback button labels, own-auth exclusion, and cross-request transition rejection")

@@ -1,3 +1,17 @@
+# Faceprint 1.2.0 — test build
+
+- Expand English macOS account-authentication matching from individual Finder/Privacy strings to native SecurityAgent/LocalAuthentication requester/action and named continuation prompts, installer administrator forms, and matching System Settings extension panes. Keep Apple signature, system-location and request checks. Do not treat Apple Account, keychain, disk/recovery, passcode or website credentials as the saved Mac login password.
+- Discover a single visible supported password field before it has keyboard focus; after recognizing the enrolled face, request focus before entering text. Prefer attached authentication sheets over underlying Settings pages.
+- Move AX discovery, target validation, password transition/input and photo-feature extraction off the main actor; bound AX messaging timeouts and permit only one discovery task at a time. Keep generation/cancellation guards.
+- Link Settings unlock/modify and System Settings/Privacy wording across stages. Bind continuation to the nearest authentication card rather than a large outer Settings window. Read AXNumberOfCharacters as well as AXValue length; refuse nonempty or unknown-length fields.
+- Preload and warm the same ArcFace model, reuse camera configuration, overlap camera/model preparation and skip the unused capture-quality Vision pass when passive photo checks are off. Require two distinct consecutive matching frames with unchanged cosine thresholds; remove the fixed 250 ms match hold.
+- Replace 500/750 ms password-card settling with a fresh 40 ms focused/empty-field confirmation, checked about every 16 ms. Use an explicit verified AXPress for Use Password, without a separate card-focus delay. Stop a failed password transition after 3 seconds.
+- Assign the complete password through AXValue when the secure control supports it; otherwise preserve native keyboard delivery without artificial per-character sleeps. Verify delivery immediately and retry length reads only while needed, up to 180 ms. Optional Return still requires verified input.
+- Reduce island entrance, pulse and collapse delays; prepare result video players ahead of time and play at 1.25x. Show Filling immediately after the face match; final success feedback follows verified delivery immediately, before optional Return dispatch. Shorten failure hold from 5 s to 1.2 s.
+- Add Copy diagnostics below the Settings status. It copies only the most recent attempt's elapsed phase timings, host/role metadata and errors from memory. It does not copy passwords, prompt/file titles, frames, embeddings or vault data.
+
+Validation: expanded native authentication/credential exclusions, distinct-frame matching, character-count handling, 40 ms readiness, request/host transition and existing regressions; build, signature and archive verification. Component timing uses synthetic Core ML input and excludes camera/Vision/AX. Live Settings/Finder/Dia workflow and visual latency still require verification; coverage is not universal for custom or differently worded dialogs. Saved data/model compatibility is unchanged.
+
 # Faceprint 1.1.4 — test build
 
 - Support Finder’s English “wants to make changes” authorization (including Undo) at both Touch ID and manually opened password stages, alongside the existing move-to-Trash request.

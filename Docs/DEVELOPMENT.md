@@ -40,7 +40,7 @@ Upstream baseline: Glance revision `b97f521397ec1197ba17768ba797cae1e628848d`. P
 
 ## Validation
 
-`bash test.sh` runs self-tests for automatic Return policy, nine-pose order and capture bands, template compatibility, Unicode chunking, and supported AutoFill context. `bash build.sh` verifies compilation. These tests do not authenticate a live system dialog or establish face-recognition security.
+`bash test.sh` runs self-tests for automatic Return policy, nine-pose order and capture bands, template compatibility, Unicode chunking, and supported AutoFill context. `bash build.sh` verifies compilation. `swift Tests/ModelTiming.swift Resources/ArcFace.mlmodelc` measures the isolated Core ML component on synthetic input; see [Performance notes](PERFORMANCE.md). These tests do not authenticate a live system dialog or establish face-recognition security.
 
 Before a release, manually check camera start/stop, enrollment start/cancel/retry, session authentication focus, permission states, and Login Items behavior from an installed app. Keep automatic Return off for the first live fill and review the field before confirming. Verify optional Return only against a request you intend to approve. Record untested behavior in the release notes.
 

@@ -11,7 +11,7 @@ final class FillController: ObservableObject {
     @Published private(set) var dataSessionReady = false
     @Published private(set) var settingsAccess = SettingsAccessState()
     @Published var protectionStatus = "Checking session protection…"
-    @Published var promptStatus = "Supports Privacy & Security, Finder authorization, and native Passwords AutoFill prompts."
+    @Published var promptStatus = "Supports native macOS account authentication and Passwords AutoFill prompts."
     @Published var hasFace = false
     @Published var hasPassword = SecureCredentialManager.hasStoredPassword()
     @Published var busy = false
@@ -38,6 +38,10 @@ final class FillController: ObservableObject {
     let enrollment: OnboardingController
     private var template: FaceTemplate?
     private var recognizer: Recognizer?
+    private var recognizerLoad: Task<Recognizer, Error>?
+    private var probing = false
+    @Published private(set) var diagnosticTrace = ""
+    private var traceStart: TimeInterval = 0
     private var operation: Task<Void, Never>?
     private var generation = 0
     private var attemptedField: AXUIElement?
@@ -78,7 +82,7 @@ final class FillController: ObservableObject {
                 protectionStatus = "Session protection check: \(error.localizedDescription)"
             }
         }
-        timer = Timer.scheduledTimer(withTimeInterval: 0.4, repeats: true) { [weak self] _ in
+        timer = Timer.scheduledTimer(withTimeInterval: 0.2, repeats: true) { [weak self] _ in
             Task { @MainActor in self?.poll() }
         }
         observers.append(NSWorkspace.shared.notificationCenter.addObserver(
@@ -99,6 +103,8 @@ final class FillController: ObservableObject {
         screenUnlockObserver = DistributedNotificationCenter.default().addObserver(
             forName: NSNotification.Name("com.apple.screenIsUnlocked"), object: nil, queue: .main
         ) { [weak self] _ in Task { @MainActor in self?.screenLocked = false } }
+
+        recognizerLoad = Task.detached(priority: .userInitiated) { try Recognizer() }
 
     }
 
@@ -262,7 +268,9 @@ final class FillController: ObservableObject {
 
     private func getRecognizer() async throws -> Recognizer {
         if let recognizer { return recognizer }
-        let loaded = try await Task.detached { try Recognizer() }.value
+        let loading = recognizerLoad ?? Task.detached(priority: .userInitiated) { try Recognizer() }
+        recognizerLoad = loading
+        let loaded = try await loading.value
         recognizer = loaded
         return loaded
     }
@@ -309,28 +317,53 @@ final class FillController: ObservableObject {
             endRuntimeSession()
         }
         guard enabled, !busy, !screenLocked, !sleeping, userSessionActive else { return }
-        if !dataSessionReady {
-            if !runtimeAuthenticationDeferred, FillTrigger.current(allowBiometric: automaticPasswordFallback) != nil { resumeAutofill() }
-            return
-        }
-        guard let template else { return }
+        guard !probing else { return }
         guard AXIsProcessTrusted() else {
             status = "Grant Faceprint Accessibility access, then enable filling again."
             enabled = false
             return
         }
-        guard let trigger = FillTrigger.current(allowBiometric: automaticPasswordFallback) else {
-            _ = attemptGate.observe(nil, now: Date.timeIntervalSinceReferenceDate)
-            if let diagnostic = PromptTarget.diagnosticSummary() { promptStatus = diagnostic }
-            return
+        let token = generation
+        let allowBiometric = automaticPasswordFallback
+        probing = true
+        Task {
+            let result = await Task.detached(priority: .userInitiated) {
+                let target = FillTrigger.current(allowBiometric: allowBiometric)
+                let verified = target?.verifyAppleSignature() == true
+                let diagnostic = target == nil ? PromptTarget.diagnosticSummary() : nil
+                return (verified ? target : nil, diagnostic)
+            }.value
+            probing = false
+            guard token == generation, enabled, !busy, !screenLocked, !sleeping, userSessionActive else { return }
+            guard let trigger = result.0 else {
+                _ = attemptGate.observe(nil, now: Date.timeIntervalSinceReferenceDate)
+                if let diagnostic = result.1 { promptStatus = diagnostic }
+                return
+            }
+            if !dataSessionReady {
+                if !runtimeAuthenticationDeferred { resumeAutofill() }
+                return
+            }
+            handleTrigger(trigger)
         }
+    }
+
+    private func record(_ event: String) {
+        let line = String(format: "%.3fs %@", ProcessInfo.processInfo.systemUptime - traceStart, event)
+        diagnosticTrace += (diagnosticTrace.isEmpty ? "" : "\n") + line
+    }
+
+    func copyDiagnostics() {
+        NSPasteboard.general.clearContents()
+        let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "unknown"
+        NSPasteboard.general.setString("Faceprint \(version) — most recent attempt\n" + diagnosticTrace, forType: .string)
+    }
+
+    private func handleTrigger(_ trigger: FillTrigger) {
+        guard let template else { return }
         promptStatus = "Recognized \(trigger.description) prompt."
         guard attemptGate.observe(trigger.requestKey, now: Date.timeIntervalSinceReferenceDate) else { return }
         if let attemptedField, CFEqual(attemptedField, trigger.element) { return }
-        guard trigger.verifyAppleSignature() else {
-            status = "The focused field's Apple signature could not be verified."
-            return
-        }
         attemptedField = trigger.element
         busy = true
         generation &+= 1
@@ -338,25 +371,37 @@ final class FillController: ObservableObject {
         let usePhotoChecks = passivePhotoChecks
         let useAutomaticReturn = autoSubmit
         let deviceID = cameraID
+        traceStart = ProcessInfo.processInfo.systemUptime
+        diagnosticTrace = ""
+        record("Detected verified \(trigger.description) prompt")
+        let report: @Sendable (String) -> Void = { [weak self] event in
+            Task { @MainActor in
+                guard let self, self.generation == currentGeneration else { return }
+                self.record(event)
+                if self.busy { self.status = event }
+            }
+        }
         status = "Looking for your face…"
         NotchOverlayController.shared.present(onRetry: { [weak self] in self?.retry() })
         operation = Task {
             do {
+                guard try await performPromptWork({ trigger.isCurrent() }) else { throw CancellationError() }
+                async let cameraReady: Void = camera.start(deviceID: deviceID)
                 let recognizer = try await getRecognizer()
-                try Task.checkCancellation()
-                guard trigger.isCurrent() else { throw CancellationError() }
-                try await camera.start(deviceID: deviceID)
+                try await cameraReady
+                record("Camera and recognition model ready")
                 try Task.checkCancellation()
                 let liveness = LivenessAnalyzer()
                 liveness.modeProvider = { .light }
-                var consecutiveMatches = 0
+                var matchGate = FaceMatchGate()
+                var receivedFirstInference = false
                 var lastFrame: UInt64?
-                var matchedSince: Date?
+                var receivedFirstFrame = false
                 let deadline = Date().addingTimeInterval(12)
                 var filled = false
                 while Date() < deadline {
                     try Task.checkCancellation()
-                    guard trigger.isCurrent() else {
+                    guard try await performPromptWork({ trigger.isCurrent() }) else {
                         throw FillError.message("Prompt changed. Return to the supported prompt and choose Retry from the menu.")
                     }
                     guard let frame = camera.latestFrame(), frame.id != lastFrame else {
@@ -364,42 +409,57 @@ final class FillController: ObservableObject {
                         continue
                     }
                     lastFrame = frame.id
-                    let result = try await Task.detached { try recognizer.recognize(frame.image) }.value
+                    if !receivedFirstFrame { record("First camera frame received"); receivedFirstFrame = true }
+                    let inferenceStart = ProcessInfo.processInfo.systemUptime
+                    let result = try await performPromptWork { try recognizer.recognize(frame.image, includeQuality: usePhotoChecks) }
+                    if !receivedFirstInference {
+                        record(String(format: "First face inference %.0fms (%@)", (ProcessInfo.processInfo.systemUptime - inferenceStart) * 1000, result == nil ? "no candidate" : "candidate found"))
+                        receivedFirstInference = true
+                    }
                     try Task.checkCancellation()
                     guard let result, template.matches(result.embedding) else {
-                        consecutiveMatches = 0
-                        matchedSince = nil
+                        _ = matchGate.observe(frame: frame.id, matched: false)
                         liveness.reset()
                         status = "Looking for your enrolled face…"
                         continue
                     }
-                    consecutiveMatches += 1
-                    if matchedSince == nil { matchedSince = Date() }
+                    let faceReady = matchGate.observe(frame: frame.id, matched: true)
                     if usePhotoChecks {
-                        let crop = frame.image.cropping(to: result.face.boundingBox)
-                        let features = LivenessFeatureExtractor.extract(from: result, frame: frame.image, faceCrop: crop)
+                        let features = try await performPromptWork {
+                            let crop = frame.image.cropping(to: result.face.boundingBox)
+                            return LivenessFeatureExtractor.extract(from: result, frame: frame.image, faceCrop: crop)
+                        }
                         let snapshot = liveness.observe(features)
                         guard !snapshot.decision.isDenied else {
                             throw FillError.message(snapshot.decision.denialReason ?? "Photo check failed.")
                         }
                         guard snapshot.decision.isConfirmed else { continue }
                     }
-                    guard consecutiveMatches >= 3,
-                          Date().timeIntervalSince(matchedSince ?? Date()) >= 0.25 else { continue }
+                    guard faceReady else { continue }
                     attemptGate.mark(trigger.requestKey)
                     camera.stop()
+                    record("Enrolled face matched on two distinct frames")
+                    NotchOverlayController.shared.faceRecognized()
                     status = trigger.isBiometric ? "Face recognized. Waiting for the password field to focus…" : "Face recognized. Filling the password field…"
-                    let target = try await trigger.passwordTargetAfterRecognition()
+                    let target = try await performPromptWork { try await trigger.passwordTargetAfterRecognition(progress: report) }
+                    record("Password field ready (\(target.ownerBundleID))")
                     try Task.checkCancellation()
                     // One attempt includes both stages. Do not immediately rescan
                     // the newly opened password field after a failed input attempt.
                     attemptedField = target.field
-                    var bytes = try SecureCredentialManager.readPassword()
-                    defer { bytes.resetBytes(in: 0..<bytes.count) }
-                    let verified = try await target.type(bytes)
+                    let verified = try await performPromptWork {
+                        var bytes = try SecureCredentialManager.readPassword()
+                        defer { bytes.resetBytes(in: 0..<bytes.count) }
+                        return try await target.type(bytes, progress: report)
+                    }
+                    record(verified ? "Input delivery verified" : "Input delivery could not be verified")
                     if verified {
+                        // Filling success is already known: let the UI render
+                        // immediately while the optional Return is dispatched.
+                        NotchOverlayController.shared.finish(success: true)
                         if InputActionPolicy.shouldPressReturn(enabled: useAutomaticReturn, verified: verified) {
-                            try target.pressReturn()
+                            try await performPromptWork { try target.pressReturn() }
+                            record("Return sent")
                             status = "Password filled and Return pressed."
                         } else {
                             status = "Password filled. Review the request and click \(target.confirmationButton)."
@@ -407,7 +467,7 @@ final class FillController: ObservableObject {
                     } else {
                         status = "Input could not be verified. Check the password field before continuing."
                     }
-                    NotchOverlayController.shared.finish(success: verified)
+                    if !verified { NotchOverlayController.shared.finish(success: false) }
                     filled = true
                     break
                 }
@@ -418,6 +478,7 @@ final class FillController: ObservableObject {
             } catch {
                 if !Task.isCancelled {
                     status = error.localizedDescription
+                    record("Stopped: " + error.localizedDescription)
                     NotchOverlayController.shared.finish(success: false)
                 }
             }

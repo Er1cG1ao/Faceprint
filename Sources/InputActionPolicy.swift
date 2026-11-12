@@ -25,17 +25,21 @@ enum InputActionPolicy {
     static func canChangeSettings(settingsUnlocked: Bool, busy: Bool) -> Bool {
         settingsUnlocked && !busy
     }
+    static func secureFieldLength(characterCount: Int?, value: String?) -> Int? {
+        let counts = [characterCount, value?.utf16.count].compactMap { $0 }.filter { $0 >= 0 }
+        return counts.max()
+    }
     static func shouldPressReturn(enabled: Bool, verified: Bool) -> Bool { enabled && verified }
 }
 
 /// Password-card animations can expose a field before keyboard input is ready.
-/// Require the same empty, focused field to settle, including an initial grace.
+/// Require a fresh confirmation of the same empty, focused field, without a fixed animation delay.
 struct PasswordFieldReadiness {
     private var stableSince: TimeInterval?
     mutating func observe(sameField: Bool, focusedAndEmpty: Bool, now: TimeInterval) -> Bool {
         guard focusedAndEmpty else { stableSince = nil; return false }
         if !sameField || stableSince == nil { stableSince = now }
-        return now >= 0.75 && now - (stableSince ?? now) >= 0.5
+        return now - (stableSince ?? now) >= 0.04
     }
 }
 
@@ -54,5 +58,26 @@ struct PromptAttemptGate {
         }
         absentSince = nil
         return key != attempted
+    }
+}
+
+/// Run synchronous AX and keyboard work away from UI rendering, while preserving
+/// cancellation when filling is disabled, the screen locks or the user switches.
+func performPromptWork<T>(_ work: @escaping @Sendable () async throws -> T) async throws -> T {
+    let task = Task.detached(priority: .userInitiated) {
+        try Task.checkCancellation()
+        return try await work()
+    }
+    return try await withTaskCancellationHandler(operation: { try await task.value }, onCancel: { task.cancel() })
+}
+
+struct FaceMatchGate {
+    private var lastFrame: UInt64?
+    private var consecutive = 0
+    mutating func observe(frame: UInt64, matched: Bool) -> Bool {
+        guard frame != lastFrame else { return false }
+        lastFrame = frame
+        consecutive = matched ? consecutive + 1 : 0
+        return consecutive >= 2
     }
 }

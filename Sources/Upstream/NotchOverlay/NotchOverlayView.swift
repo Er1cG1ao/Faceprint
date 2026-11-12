@@ -206,7 +206,7 @@ struct NotchOverlayView: View {
     /// Success and failure both leave `.scanning`, ending the pulse so the resolve
     /// animation plays against steady content.
     private var isScanning: Bool {
-        controller.phase == .scanning
+        controller.phase == .scanning && !controller.faceIsMatched
     }
 
     private var scanPulseScale: CGFloat {
@@ -257,6 +257,13 @@ struct NotchOverlayView: View {
                     OnboardingNotchView(controller: onboardingController)
                 } else {
                     scanContent
+                        .overlay(alignment: .bottom) {
+                            if controller.faceIsMatched && controller.phase == .scanning {
+                                Label("Filling…", systemImage: "checkmark.circle.fill")
+                                    .font(.system(size: 10, weight: .medium)).foregroundStyle(.green)
+                                    .padding(.bottom, isMinimalScan ? 1 : 12)
+                            }
+                        }
                 }
             }
             // Content dissolves (blur + fade) as the panel shrinks, rather than being

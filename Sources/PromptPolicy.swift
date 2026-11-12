@@ -13,7 +13,8 @@ enum PromptPolicy {
         "com.apple.LocalAuthentication.UIAgent", "com.apple.LocalAuthenticationRemoteService"
     ]
     static func supportsOwner(_ bundleID: String) -> Bool {
-        bundleID == privacyBundleID || bundleID == "com.apple.systempreferences"
+        bundleID.hasPrefix("com.apple.settings.") && bundleID.hasSuffix(".extension")
+            || bundleID == privacyBundleID || bundleID == "com.apple.systempreferences"
             || bundleID == "com.apple.finder" || autofillBundleIDs.contains(bundleID)
             || authenticationBundleIDs.contains(bundleID)
     }
@@ -26,23 +27,95 @@ enum PromptPolicy {
         guard !text.contains("faceprint"), normalized.contains("cancel") else { return nil }
         if ownerBundleID == privacyBundleID || ownerBundleID == "com.apple.systempreferences"
             || authenticationBundleIDs.contains(ownerBundleID) {
-            if text.contains("privacy & security"),
-               text.contains("to continue with privacy & security"),
+            if text.contains("privacy & security") || text.contains("system settings"),
+               text.contains("to continue with privacy & security") || text.contains("to continue with system settings")
+                || text.contains("to continue with \"privacy & security\"") || text.contains("to continue with \"system settings\""),
                text.contains("modify your system settings") || text.contains("unlock system settings") {
                 return "privacy"
             }
         }
-        if ownerBundleID == "com.apple.finder" || authenticationBundleIDs.contains(ownerBundleID) {
-            guard text.contains("to continue with \"finder\"") else { return nil }
+        if (ownerBundleID == "com.apple.finder" || authenticationBundleIDs.contains(ownerBundleID)),
+           text.contains("to continue with \"finder\"") {
             if text.contains("finder wants to make changes.") { return "finder-changes" }
-            guard let heading = normalized.first(where: {
-                      $0.hasPrefix("finder wants to move ") && $0.hasSuffix(" to the trash.")
-                  }) else { return nil }
-            // Include the exact request heading: another file operation cannot
-            // be mistaken for the continuation of the enrolled-face scan.
-            return "finder-trash:" + heading
+            if let heading = normalized.first(where: {
+                $0.hasPrefix("finder wants to move ") && $0.hasSuffix(" to the trash.")
+            }) { return "finder-trash:" + heading }
+        }
+        return nativeAuthenticationContext(in: strings, ownerBundleID: ownerBundleID)
+    }
+
+    /// General macOS account authentication hosted by system agents. Never
+    /// interpret website/app login, Apple Account, keychain or disk secrets as
+    /// the saved Mac account password.
+    static func nativeAuthenticationContext(in strings: [String], ownerBundleID: String) -> String? {
+        guard authenticationBundleIDs.contains(ownerBundleID) || ownerBundleID == "com.apple.finder" || ownerBundleID == "com.apple.Passwords"
+            || ownerBundleID == "com.apple.systempreferences"
+            || (ownerBundleID.hasPrefix("com.apple.settings.") && ownerBundleID.hasSuffix(".extension")) else { return nil }
+        let text = canonical(strings.joined(separator: " "))
+        let excluded = ["faceprint", "keychain", "apple id", "apple account", "apple pay", "passcode", "verification code", "recovery key", "disk password", "filevault", "ssh", "remote login"]
+        guard !excluded.contains(where: text.contains), strings.map(canonical).contains("cancel"),
+              text.contains("enter your password") || text.contains("enter the password for the user")
+                || text.contains("administrator") && text.contains("name and password"),
+              let heading = nativeRequestHeading(in: strings) else { return nil }
+        guard let subject = requester(in: heading) else { return nil }
+        if ownerBundleID.hasPrefix("com.apple.settings.") {
+            func compact(_ text: String) -> String { text.filter(\.isLetter).lowercased() }
+            let pane = ownerBundleID.replacingOccurrences(of: "com.apple.settings.", with: "").replacingOccurrences(of: ".extension", with: "")
+            guard compact(subject) == compact(pane) || subject == "system settings" else { return nil }
+        }
+        if text.contains("to continue with \"\(subject)\"") || text.contains("to continue with \(subject)")
+                || text.contains("administrator") && text.contains("name and password")
+                || text.contains("enter your password to allow this") {
+            return "native:" + heading
         }
         return nil
+    }
+
+    static func nativeRequestHeading(in strings: [String]) -> String? {
+        var headings = Set<String>()
+        for text in strings.map(canonical) {
+            for pattern in [#"^(.+? (?:wants to|is trying to) .+?\.)(?:$|\s)"#, #"^(autofill for ".+?")"#] {
+                if let range = text.range(of: pattern, options: .regularExpression) {
+                    headings.insert(String(text[range]).trimmingCharacters(in: .whitespaces))
+                }
+            }
+        }
+        if headings.count == 1 { return headings.first }
+        guard headings.isEmpty else { return nil }
+        // Some native cards expose only a service name and a continuation
+        // sentence rather than a wants-to/is-trying-to headline.
+        var subjects = Set<String>()
+        for text in strings.map(canonical) {
+            guard let start = text.range(of: "to continue with ") else { continue }
+            var subject = String(text[start.upperBound...]).trimmingCharacters(in: .whitespaces)
+            if subject.hasPrefix("\"") {
+                subject.removeFirst()
+                guard let end = subject.firstIndex(of: "\"") else { continue }
+                subject = String(subject[..<end])
+            } else { subject = subject.trimmingCharacters(in: CharacterSet(charactersIn: ". ")) }
+            if !subject.isEmpty, subject.count <= 100,
+               !["cancel", "use password", "enter your password"].contains(where: subject.contains) { subjects.insert(subject) }
+        }
+        return subjects.count == 1 ? "macos account authentication for " + subjects.first! : nil
+    }
+
+    static func requester(in heading: String) -> String? {
+        let prefix = "macos account authentication for "
+        if heading.hasPrefix(prefix) { return String(heading.dropFirst(prefix.count)) }
+        for separator in [" wants to ", " is trying to "] {
+            if let range = heading.range(of: separator) { return String(heading[..<range.lowerBound]).trimmingCharacters(in: CharacterSet(charactersIn: "\"")) }
+        }
+        return nil
+    }
+
+    static func compatibleHeadings(_ lhs: String?, _ rhs: String?, context: String) -> Bool {
+        guard let lhs, let rhs else { return false }
+        if lhs == rhs { return true }
+        // Settings changes its wording from unlock to modify between stages.
+        let privacy = ["privacy & security is trying to modify your system settings.", "privacy & security is trying to unlock system settings."]
+        let a = lhs.replacingOccurrences(of: "system settings is trying to", with: "privacy & security is trying to")
+        let b = rhs.replacingOccurrences(of: "system settings is trying to", with: "privacy & security is trying to")
+        return context == "privacy" && privacy.contains(a) && privacy.contains(b)
     }
 
     static func canonical(_ text: String) -> String {
@@ -71,7 +144,7 @@ enum PromptPolicy {
 extension PromptPolicy {
     static func isPasswordFallbackButton(_ title: String) -> Bool {
         let label = canonical(title).replacingOccurrences(of: "…", with: "...")
-        return label == "use password" || label == "use password..."
+        return ["use password", "use password...", "enter password", "enter password...", "use login password", "use login password..."].contains(label)
     }
 
     /// Touch ID stage only. Unrelated LocalAuthentication requests, including
@@ -117,7 +190,7 @@ extension PromptPolicy {
                 headings.insert(String(string[start.lowerBound...end]))
             }
         }
-        return headings.count == 1 ? headings.first : nil
+        return headings.count == 1 ? headings.first : (headings.isEmpty ? nativeRequestHeading(in: strings) : nil)
     }
 
     /// A replacement authentication host needs independent evidence linking it

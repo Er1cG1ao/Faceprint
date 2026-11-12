@@ -18,6 +18,7 @@ final class Camera: NSObject, AVCaptureVideoDataOutputSampleBufferDelegate, @unc
     private let context = CIContext(options: [.cacheIntermediates: false])
     private var frame: (id: UInt64, image: CGImage)?
     private var frameID: UInt64 = 0
+    private var configuredDeviceID: String?
 
     private func nextGeneration() -> UInt64 {
         controlLock.lock()
@@ -56,15 +57,22 @@ final class Camera: NSObject, AVCaptureVideoDataOutputSampleBufferDelegate, @unc
                 var configuring = false
                 do {
                     guard self.isCurrent(token) else { throw CancellationError() }
+                    let device = Self.devices.first { $0.uniqueID == deviceID } ?? AVCaptureDevice.default(for: .video)
+                    guard let device else { throw FillError.message("No camera is available.") }
+                    if self.configuredDeviceID == device.uniqueID, !self.session.inputs.isEmpty {
+                        if !self.session.isRunning { self.session.startRunning() }
+                        guard self.session.isRunning else { throw FillError.message("Camera did not start.") }
+                        continuation.resume()
+                        return
+                    }
                     if self.session.isRunning { self.session.stopRunning() }
+                    self.configuredDeviceID = nil
                     self.clearFrame()
                     self.session.beginConfiguration()
                     configuring = true
                     self.session.sessionPreset = .vga640x480
                     self.session.inputs.forEach { self.session.removeInput($0) }
                     self.session.outputs.forEach { self.session.removeOutput($0) }
-                    let device = Self.devices.first { $0.uniqueID == deviceID } ?? AVCaptureDevice.default(for: .video)
-                    guard let device else { throw FillError.message("No camera is available.") }
                     let input = try AVCaptureDeviceInput(device: device)
                     guard self.session.canAddInput(input) else { throw FillError.message("Cannot use this camera.") }
                     self.session.addInput(input)
@@ -76,6 +84,7 @@ final class Camera: NSObject, AVCaptureVideoDataOutputSampleBufferDelegate, @unc
                     self.session.addOutput(output)
                     self.session.commitConfiguration()
                     configuring = false
+                    self.configuredDeviceID = device.uniqueID
                     guard self.isCurrent(token) else { throw CancellationError() }
                     self.session.startRunning()
                     guard self.session.isRunning else { throw FillError.message("Camera did not start.") }

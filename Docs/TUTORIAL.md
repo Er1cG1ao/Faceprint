@@ -2,6 +2,8 @@
 
 [Home](../README.md) · **English** · [简体中文](TUTORIAL.zh-CN.md)
 
+This guide describes the 1.2.0 development/test build; the published stable release may expose fewer features.
+
 ## Set up
 
 Download the app ZIP from [Releases](https://github.com/Er1cG1ao/faceprint/releases), quit any older instance, extract it, and move Faceprint into Applications. The app requires Apple Silicon and macOS 15+. It is ad hoc signed and not Apple-notarized.
@@ -20,7 +22,7 @@ Click **Unlock to edit** and complete the macOS authentication request. Select y
 
 Filling always uses your saved password. There is no test-character mode or camera/island preview control in Settings.
 
-By default, open each prompt's password-entry step yourself. With Scan Touch ID prompts enabled, Faceprint scans while the supported Touch ID card is focused and selects its explicit Use Password control only after recognition. It attempts a given field once. To retry after a failure, use **Retry current prompt** in the menu bar, or hover over the failure island while it remains visible.
+By default, open each prompt's password-entry step yourself. With Scan Touch ID prompts enabled, Faceprint scans when a supported visible Touch ID card is discovered and selects its explicit Use Password control only after recognition. It attempts a given field once. To retry after a failure, use **Retry current prompt** in the menu bar, or hover over the failure island while it remains visible.
 
 ## Locked settings and everyday autofill
 
@@ -60,19 +62,24 @@ Unlock settings, turn filling off in General, and enable **Scan Touch ID prompts
 | On | Off | Faceprint recognizes at the Touch ID card, selects Use Password and fills; you submit. |
 | On | On | Faceprint recognizes at the Touch ID card, selects Use Password, fills and submits. |
 
-The scan does not click anything until your face matches. The transition uses the explicit Accessibility button action, with no speculative Return. The resulting field must be empty and match the original request. A replacement signed Apple host is accepted only with an identical request heading and evidence that it is the same dialog (AX window identity, or matching card geometry after the original biometric stage disappears). A changed request, unavailable button, timeout or failed verification stops the flow. If a host change cannot be linked to the original card, or wording is not recognized, use the manual password-entry path and Retry current prompt. This version supports English Touch ID wording for the existing supported dialog types.
+The scan does not click anything until your face matches. The transition uses the explicit Accessibility button action, with no speculative Return. The resulting field must be empty and match the original request. A replacement signed Apple host is accepted only with a matching request heading (including known Settings unlock/modify aliases) and evidence that it is the same dialog (AX window identity, or matching card geometry after the original biometric stage disappears). A changed request, unavailable button, timeout or failed verification stops the flow. If a host change cannot be linked to the original card, or wording is not recognized, use the manual password-entry path and Retry current prompt. This version supports English Touch ID wording for the existing supported dialog types.
 
-Visible supported Touch ID cards can also be discovered before they have keyboard focus. After a face match, Faceprint raises and focuses that card before selecting Use Password. Switching apps during that scan cancels it; multiple simultaneous cards are not chosen automatically.
+Visible supported Touch ID cards can also be discovered before they have keyboard focus. After a face match, Faceprint activates that card if necessary and invokes its verified Use Password control. Switching apps during that scan cancels it; multiple simultaneous cards are not chosen automatically.
 
-After a face match the camera stops. Password fallback waits for the same empty secure field to hold keyboard focus for 500 ms (at least 750 ms after switching), with a 7-second timeout. Finder’s user-name field is not used for password input. Failed continuation does not immediately start a second scan; use **Retry current prompt** to retry.
+After a face match the camera stops. Password fallback confirms the same empty, focused secure field again after about 40 ms, with a 3-second transition timeout and no fixed animation grace. Finder’s user-name field is not used for password input. Failed continuation does not immediately start a second scan; use **Retry current prompt** to retry.
 
 ## Supported dialogs
 
-- Privacy & Security system settings password prompts (extension or native authentication-agent host).
+- Privacy & Security and matching System Settings extension account-password prompts (extension or native authentication-agent host).
+- English native SecurityAgent/LocalAuthentication requester/action prompts and installer administrator forms.
 - Finder’s English “wants to move … to the Trash” and “wants to make changes” authorization prompts (including Undo).
 - Native Passwords AutoFill verification, including AutoFill for Dia. Matching currently depends on English dialog text and the current account.
 
-The app verifies supported Apple processes and dialog context. Arbitrary website password forms, lock-screen unlocking, passkeys, and Apple Pay approval are outside the supported flow.
+The app verifies supported Apple processes and dialog context. Visible supported password fields can also start recognition before gaining keyboard focus; a face match is required before focus is requested. Arbitrary website/app account forms, Apple Account/keychain/disk passwords, lock-screen unlocking, passkeys, and Apple Pay approval are outside the saved-Mac-password flow. Custom or unrecognized wording can still require manual authentication.
+
+The same ArcFace model and similarity thresholds are used with two distinct matching frames. Model warm-up and camera reuse reduce startup work. Where supported, the secure field receives one AXValue assignment; otherwise native keyboard delivery is retained. A quick length check remains before optional Return.
+
+If a workflow stalls, click **Copy diagnostics** below the Settings status after that attempt, before triggering another. It copies elapsed phases and system-host metadata, without password, face or prompt/file-title data. See [Performance notes](PERFORMANCE.md).
 
 ## Troubleshooting
 

@@ -51,6 +51,7 @@ final class NotchOverlayController {
     }
 
     private(set) var phase: Phase = .closed
+    private(set) var faceIsMatched = false
     private(set) var content: Content = .scan(.idle)
     /// Read-only convenience for the scan-mode view/callers — `.idle` while
     /// onboarding owns the panel.
@@ -84,9 +85,9 @@ final class NotchOverlayController {
     private var hasPrimedWindow = false
 
     /// Matches the success asset duration (~1.22s) plus a short beat to read the final frame.
-    private let successHoldDuration: Duration = .milliseconds(1_700)
+    private let successHoldDuration: Duration = .milliseconds(1_050)
     /// Non-private so FaceUnlockCoordinator's auto-retry can wait this out too.
-    let failureHoldDuration: Duration = .seconds(5)
+    let failureHoldDuration: Duration = .milliseconds(1_200)
     /// Reads the same setting as `FaceUnlockCoordinator.scanWindowDuration` so
     /// the two separate timers expire together.
     private var scanTimeoutDuration: Duration {
@@ -94,7 +95,7 @@ final class NotchOverlayController {
     }
     /// Long enough for the closing spring to fully settle before the window is
     /// hidden/left closed — collapsing state too early made the window visibly pop away.
-    let collapseAnimationDuration: Duration = .milliseconds(700)
+    let collapseAnimationDuration: Duration = .milliseconds(260)
 
     private init() {
         windowController.contentView = NSHostingView(rootView: NotchOverlayView(controller: self))
@@ -216,8 +217,14 @@ final class NotchOverlayController {
     ///
     /// - Parameter styleOverride: forces `.minimal`/`.original` regardless of the saved
     ///   preference, for the Animation section's live preview.
+    func faceRecognized() {
+        guard phase == .scanning else { return }
+        faceIsMatched = true
+    }
+
     func present(styleOverride: UnlockAnimationStyle? = nil, onRetry: (() -> Void)? = nil) {
         isArmed = false
+        faceIsMatched = false
         onActivate = onRetry
         resolveTask?.cancel(); resolveTask = nil
         scanTimeoutTask?.cancel(); scanTimeoutTask = nil
@@ -275,6 +282,7 @@ final class NotchOverlayController {
     /// collapses on its own; failure plays its animation and holds until
     /// either the hold expires or the user hovers to retry.
     func finish(success: Bool) {
+        faceIsMatched = false
         resolveTask?.cancel()
         scanTimeoutTask?.cancel()
 
