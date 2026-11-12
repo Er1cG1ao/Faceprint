@@ -1,3 +1,11 @@
+# Faceprint 1.2.1 — test build
+
+- Address the host handoff shown in the 1.2.0 diagnostic trace: com.apple.systempreferences owns the Touch ID card and com.apple.settings.PrivacySecurity.extension owns the focused password field. The generic cross-host window/geometry test rejected continuation before input.
+- Permit only this directed native delegation after a successful explicit Use Password action, for the same Privacy context, with an empty currently focused secure field and a valid Apple signature. Require System Settings/the extension to be foreground, or the original requester to remain unchanged in front. Cross-XPC window metadata is not required for this fixed pair; other handoffs retain existing checks.
+- Add a Settings-delegate-linked diagnostic phase and foreground/context/signature/focus flags on a failed handoff. Finder, browser AutoFill, recognition, input delivery and animation timing remain unchanged from 1.2.0.
+
+Validation: reported-pair regression and negative cases for other hosts, contexts, missing fallback/focus/signature and changed foreground; existing self-tests, build, signature and archive checks. Live Settings filling still requires verification.
+
 # Faceprint 1.2.0 — test build
 
 - Expand English macOS account-authentication matching from individual Finder/Privacy strings to native SecurityAgent/LocalAuthentication requester/action and named continuation prompts, installer administrator forms, and matching System Settings extension panes. Keep Apple signature, system-location and request checks. Do not treat Apple Account, keychain, disk/recovery, passcode or website credentials as the saved Mac login password.

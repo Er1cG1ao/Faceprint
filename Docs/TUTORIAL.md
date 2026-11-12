@@ -2,7 +2,7 @@
 
 [Home](../README.md) · **English** · [简体中文](TUTORIAL.zh-CN.md)
 
-This guide describes the 1.2.0 development/test build; the published stable release may expose fewer features.
+This guide describes the 1.2.1 development/test build; the published stable release may expose fewer features.
 
 ## Set up
 
@@ -62,7 +62,7 @@ Unlock settings, turn filling off in General, and enable **Scan Touch ID prompts
 | On | Off | Faceprint recognizes at the Touch ID card, selects Use Password and fills; you submit. |
 | On | On | Faceprint recognizes at the Touch ID card, selects Use Password, fills and submits. |
 
-The scan does not click anything until your face matches. The transition uses the explicit Accessibility button action, with no speculative Return. The resulting field must be empty and match the original request. A replacement signed Apple host is accepted only with a matching request heading (including known Settings unlock/modify aliases) and evidence that it is the same dialog (AX window identity, or matching card geometry after the original biometric stage disappears). A changed request, unavailable button, timeout or failed verification stops the flow. If a host change cannot be linked to the original card, or wording is not recognized, use the manual password-entry path and Retry current prompt. This version supports English Touch ID wording for the existing supported dialog types.
+The scan does not click anything until your face matches. The transition uses the explicit Accessibility button action, with no speculative Return. The resulting field must be empty and match the original request. A replacement signed Apple host is accepted only with a matching request heading (including known Settings unlock/modify aliases) and evidence that it is the same dialog (AX window identity, or matching card geometry after the original biometric stage disappears). System Settings has a specific native delegation to the Privacy & Security extension: after verified Use Password activation, an already focused empty field in that Apple-signed extension may continue the same Privacy request without cross-XPC window metadata, while the expected foreground is retained. A changed request, unavailable button, timeout or failed verification stops the flow. If a host change cannot be linked to the original card, or wording is not recognized, use the manual password-entry path and Retry current prompt. This version supports English Touch ID wording for the existing supported dialog types.
 
 Visible supported Touch ID cards can also be discovered before they have keyboard focus. After a face match, Faceprint activates that card if necessary and invokes its verified Use Password control. Switching apps during that scan cancels it; multiple simultaneous cards are not chosen automatically.
 

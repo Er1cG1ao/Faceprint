@@ -209,6 +209,28 @@ enum FaceprintSelfTest {
         }
         precondition(!PromptPolicy.compatibleHeadings("privacy & security is trying to unlock system settings.", "example app wants to make changes.", context: "privacy"))
         precondition(PromptPolicy.compatibleHeadings("privacy & security is trying to unlock system settings.", "privacy & security is trying to modify your system settings.", context: "privacy"))
+        // Reproduce the reported 1.2.0 handoff: verified Settings Touch ID card
+        // -> focused empty PrivacySecurity extension field, across process IDs.
+        // The directed delegation does not require shared AX window geometry.
+        for foreground in ["com.apple.systempreferences", PromptPolicy.privacyBundleID] {
+            precondition(PromptPolicy.permitsSettingsDelegateHandoff(originalBundleID: "com.apple.systempreferences", passwordBundleID: PromptPolicy.privacyBundleID, originalContext: "privacy", passwordContext: "privacy", fallbackSelected: true, focusedEmptyField: true, appleSigned: true, foregroundBundleID: foreground))
+        }
+        // macOS modal auth can retain its original requester's menu-bar owner.
+        precondition(PromptPolicy.permitsSettingsDelegateHandoff(originalBundleID: "com.apple.systempreferences", passwordBundleID: PromptPolicy.privacyBundleID, originalContext: "privacy", passwordContext: "privacy", fallbackSelected: true, focusedEmptyField: true, appleSigned: true, foregroundBundleID: "io.github.er1cg1ao.faceprint", foregroundUnchanged: true))
+        for (source, destination, sourceContext, targetContext, pressed, focusedEmpty, signed, foreground) in [
+            ("com.apple.finder", PromptPolicy.privacyBundleID, "privacy", "privacy", true, true, true, "com.apple.systempreferences"),
+            ("com.apple.systempreferences", "com.apple.LocalAuthentication.UIAgent", "privacy", "privacy", true, true, true, "com.apple.systempreferences"),
+            ("com.apple.systempreferences", PromptPolicy.privacyBundleID, "finder-changes", "privacy", true, true, true, "com.apple.systempreferences"),
+            ("com.apple.systempreferences", PromptPolicy.privacyBundleID, "privacy", "native:other", true, true, true, "com.apple.systempreferences"),
+            ("com.apple.systempreferences", PromptPolicy.privacyBundleID, "privacy", "privacy", false, true, true, "com.apple.systempreferences"),
+            ("com.apple.systempreferences", PromptPolicy.privacyBundleID, "privacy", "privacy", true, false, true, "com.apple.systempreferences"),
+            ("com.apple.systempreferences", PromptPolicy.privacyBundleID, "privacy", "privacy", true, true, false, "com.apple.systempreferences"),
+            ("com.apple.systempreferences", PromptPolicy.privacyBundleID, "privacy", "privacy", true, true, true, "example.browser")
+        ] {
+            precondition(!PromptPolicy.permitsSettingsDelegateHandoff(originalBundleID: source, passwordBundleID: destination, originalContext: sourceContext, passwordContext: targetContext, fallbackSelected: pressed, focusedEmptyField: focusedEmpty, appleSigned: signed, foregroundBundleID: foreground))
+        }
+        precondition(!PromptPolicy.permitsSettingsDelegateHandoff(originalBundleID: "com.apple.systempreferences", passwordBundleID: PromptPolicy.privacyBundleID, originalContext: "privacy", passwordContext: "privacy", fallbackSelected: true, focusedEmptyField: true, appleSigned: true, foregroundBundleID: nil))
+        print("PASS reported Settings-to-PrivacySecurity delegation; wrong-host/context, absent focus/action/signature and changed-foreground rejection")
         print("PASS native installer/app authentication, wrong-host/credential exclusions and Settings wording handoff")
         print("PASS Finder changes/undo stages, ambiguous headings, and constrained signed-host handoff")
         print("PASS Settings extension/agent hosts, Finder trash context, wrong host/app and changed-file rejection")

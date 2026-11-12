@@ -565,7 +565,7 @@ struct BiometricPromptTarget {
             // Apple agent. Every discovered target is independently verified.
             // A newly mounted password card may initially focus its user-name
             // field or no field at all. Find its secure field within this request.
-            if let target = continuationField(anchor: anchor) {
+            if let target = continuationField(anchor: anchor, originalForegroundPID: transitionFrontmostPID) {
                 let sameField = lastField.map { CFEqual($0, target.field) } ?? false
                 if !sameField { lastField = target.field }
                 guard let length = PromptTarget.fieldLength(target.field) else {
@@ -573,7 +573,11 @@ struct BiometricPromptTarget {
                 }
                 guard length == 0 else { throw FillError.message("The password field is not empty. No password was entered.") }
                 let focused = target.isCurrent(requireEmpty: true)
-                report("Password field found (\(target.ownerBundleID)); \(focused ? "confirming focus" : "requesting focus")")
+                if ownerBundleID == "com.apple.systempreferences", target.ownerBundleID == PromptPolicy.privacyBundleID {
+                    report("Settings password delegate linked (PrivacySecurity.extension); confirming empty-field focus")
+                } else {
+                    report("Password field found (\(target.ownerBundleID)); \(focused ? "confirming focus" : "requesting focus")")
+                }
                 if !focused {
                     let foreground = NSWorkspace.shared.frontmostApplication
                     let expectedRequester = contextID == "privacy" ? "com.apple.systempreferences"
@@ -594,7 +598,7 @@ struct BiometricPromptTarget {
             } else {
                 if let focused = PromptTarget.focusedElement() {
                     let role = PromptTarget.attribute(focused.element, kAXRoleAttribute) as? String ?? "unknown"
-                    report("Waiting for password link; focused owner \(focused.app.bundleIdentifier ?? "unknown") (\(role))")
+                    report("Waiting for password link; focused owner \(focused.app.bundleIdentifier ?? "unknown") (\(role)); foreground \(NSWorkspace.shared.frontmostApplication?.bundleIdentifier ?? "unknown")")
                 } else { report("Waiting for password link; no focused AX element") }
                 _ = readiness.observe(sameField: false, focusedAndEmpty: false,
                     now: Date().timeIntervalSince(transitionStarted))
@@ -603,14 +607,14 @@ struct BiometricPromptTarget {
         }
         if let observed = PromptTarget.current(requireEmpty: false),
            observed.pid != pid || observed.ownerBundleID != ownerBundleID {
-            throw FillError.message("Password dialog host changed from \(ownerBundleID) to \(observed.ownerBundleID). Focus the field and choose Retry current prompt.")
+            throw FillError.message("Password handoff not accepted: \(ownerBundleID) → \(observed.ownerBundleID); contextMatches=\(observed.contextID == contextID), focusedEmpty=\(observed.isCurrent(requireEmpty: true)), appleSigned=\(observed.verifyAppleSignature()), foreground=\(NSWorkspace.shared.frontmostApplication?.bundleIdentifier ?? "unknown"). Choose Retry current prompt.")
         }
         throw FillError.message("The password field did not become ready. Focus it and choose Retry current prompt.")
     }
 
     /// Search the original host and supported replacement hosts. Cross-host
     /// matches require the captured card anchor, not a general process allowlist.
-    private func continuationField(anchor: PasswordFallbackAnchor) -> PromptTarget? {
+    private func continuationField(anchor: PasswordFallbackAnchor, originalForegroundPID: pid_t?) -> PromptTarget? {
         let originalBiometricGone = Self.fallbackButton(in: root) == nil
             || PromptPolicy.biometricContext(in: PromptTarget.dialogText(root), ownerBundleID: ownerBundleID) != contextID
         func accepts(_ candidate: PromptTarget) -> Bool {
@@ -622,7 +626,20 @@ struct BiometricPromptTarget {
         }
         // An already focused, verified field is authoritative and avoids walking
         // large unrelated Settings trees. It must still pass the settling gate.
-        if let current = PromptTarget.current(requireEmpty: false), accepts(current) { return current }
+        if let current = PromptTarget.current(requireEmpty: false) {
+            let foreground = NSWorkspace.shared.frontmostApplication
+            let foregroundPID = foreground?.processIdentifier
+            let foregroundUnchanged = foregroundPID != nil
+                && (foregroundPID == originalForegroundPID || foregroundPID == discoveryFrontmostPID)
+            let settingsDelegate = PromptPolicy.permitsSettingsDelegateHandoff(
+                originalBundleID: ownerBundleID, passwordBundleID: current.ownerBundleID,
+                originalContext: contextID, passwordContext: current.contextID,
+                fallbackSelected: true, // This method is entered only after successful AXPress.
+                focusedEmptyField: current.isCurrent(requireEmpty: true),
+                appleSigned: current.verifyAppleSignature(),
+                foregroundBundleID: foreground?.bundleIdentifier, foregroundUnchanged: foregroundUnchanged)
+            if settingsDelegate || accepts(current) { return current }
+        }
         var roots = [root]
         for app in NSWorkspace.shared.runningApplications {
             guard let bundleID = app.bundleIdentifier, PromptPolicy.supportsOwner(bundleID),

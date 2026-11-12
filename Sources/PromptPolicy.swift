@@ -202,3 +202,20 @@ extension PromptPolicy {
             && (sameWindow || (matchingFrame && originalBiometricGone))
     }
 }
+
+extension PromptPolicy {
+    /// System Settings hosts the biometric card, then delegates password entry
+    /// to the dedicated Privacy & Security extension. XPC AX windows are not
+    /// necessarily comparable across those hosts. Accept only this directed
+    /// delegation after an explicit, verified fallback action; never generalize
+    /// the exception to arbitrary authentication agents or unfocused fields.
+    static func permitsSettingsDelegateHandoff(originalBundleID: String, passwordBundleID: String,
+                                               originalContext: String, passwordContext: String,
+                                               fallbackSelected: Bool, focusedEmptyField: Bool,
+                                               appleSigned: Bool, foregroundBundleID: String?, foregroundUnchanged: Bool = false) -> Bool {
+        originalBundleID == "com.apple.systempreferences" && passwordBundleID == privacyBundleID
+            && originalContext == "privacy" && passwordContext == "privacy"
+            && fallbackSelected && focusedEmptyField && appleSigned
+            && (["com.apple.systempreferences", privacyBundleID].contains(foregroundBundleID ?? "") || foregroundUnchanged)
+    }
+}
