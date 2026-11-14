@@ -10,3 +10,8 @@ vault*.json
 
 # Generated from Branding/Faceprint.png during build.
 Resources/*.icns
+
+# Local signing selection and public designated-requirement baseline (never private keys).
+.signing.local.json
+.signing.local.json.tmp
+.signing.requirement

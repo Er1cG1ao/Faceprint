@@ -2,7 +2,7 @@
 set -euo pipefail
 cd "$(dirname "$0")"
 app="${FACEPRINT_OUTPUT_APP:-$PWD/Faceprint.app}"
-signing_identity="${FACEPRINT_SIGN_IDENTITY:--}"
+signing_identity="$(python3 Tools/configure-signing.py --resolve)"
 if [[ ! -d Resources/ArcFace.mlmodelc ]]; then
     bash setup-resources.sh
 fi
@@ -28,4 +28,10 @@ codesign --force --sign "$signing_identity" --identifier io.github.er1cg1ao.face
     --options runtime "$app/Contents/Helpers/FaceprintUpdateInstaller"
 codesign --force --sign "$signing_identity" --options runtime --entitlements entitlements.plist "$app"
 codesign --verify --strict --deep "$app"
+if [[ "$signing_identity" != "-" ]]; then
+    swiftc -swift-version 5 -parse-as-library -O -target arm64-apple-macosx15.0 \
+        -module-cache-path "$PWD/.build-cache" Sources/UpdateCore.swift Tools/SigningIdentityCheck.swift \
+        -o "$PWD/.build-cache/SigningIdentityCheck"
+    "$PWD/.build-cache/SigningIdentityCheck" "$app" "$PWD/.signing.requirement"
+fi
 printf '%s\n' "Built $app"
