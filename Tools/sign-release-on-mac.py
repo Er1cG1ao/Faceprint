@@ -13,7 +13,8 @@ import shutil
 import subprocess
 import sys
 import tempfile
-import urllib.request
+from urllib.parse import urljoin, urlsplit
+from email.parser import BytesParser
 from datetime import datetime
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -22,15 +23,55 @@ ALLOWED = {'api.github.com', 'github.com', 'release-assets.githubusercontent.com
 MAX_ARCHIVE = 512 * 1024 * 1024
 BUNDLE_ID = 'io.github.er1cg1ao.faceprint'
 
-class Redirects(urllib.request.HTTPRedirectHandler):
-    def redirect_request(self, req, fp, code, msg, headers, newurl):
-        from urllib.parse import urlsplit
-        url = urlsplit(newurl)
-        if url.scheme != 'https' or url.hostname not in ALLOWED or url.username or url.password or url.port:
-            raise RuntimeError('Unexpected update download redirect')
-        return super().redirect_request(req, fp, code, msg, headers, newurl)
+def download(url, destination, limit):
+    """Use macOS curl's normal TLS trust; validate every redirect before fetching.
 
-OPENER = urllib.request.build_opener(Redirects())
+    Python.org Python installations can lack their CA bundle even though macOS
+    trusts GitHub. Never work around that by disabling certificate verification.
+    """
+    destination = Path(destination)
+    headers = destination.with_name(destination.name + '.headers')
+    try:
+        for _ in range(6):
+            parsed = urlsplit(url)
+            if parsed.scheme != 'https' or parsed.hostname not in ALLOWED or parsed.username or parsed.password or parsed.port:
+                raise RuntimeError('Unexpected HTTPS download host or redirect')
+            args = ['/usr/bin/curl', '--disable', '--fail', '--silent', '--show-error',
+                    '--proto', '=https', '--proto-redir', '=https',
+                    '--connect-timeout', '20', '--max-time', '180',
+                    '--max-filesize', str(limit), '--dump-header', str(headers),
+                    '--output', str(destination), '--write-out', '%{http_code}',
+                    '--header', 'Accept: application/vnd.github+json' if parsed.hostname == 'api.github.com' else 'Accept: application/octet-stream',
+                    '--user-agent', 'Faceprint-local-signing', url]
+            result = subprocess.run(args, text=True, capture_output=True)
+            if result.returncode:
+                raise RuntimeError('HTTPS download failed: ' + result.stderr.strip()[:400])
+            if not destination.is_file() or destination.stat().st_size > limit:
+                raise RuntimeError('Download exceeds its size limit')
+            status = int(result.stdout.strip())
+            if status == 200:
+                return
+            if status not in [301, 302, 303, 307, 308]:
+                raise RuntimeError(f'Unexpected HTTP status: {status}')
+            blocks = [x for x in re.split(rb'\r?\n\r?\n', headers.read_bytes()) if x.startswith(b'HTTP/')]
+            if not blocks:
+                raise RuntimeError('Missing redirect headers')
+            header_lines = blocks[-1].split(b'\n', 1)
+            message = BytesParser().parsebytes(header_lines[1] if len(header_lines) == 2 else b'')
+            location = message.get('Location')
+            if not location:
+                raise RuntimeError('Missing redirect location')
+            url = urljoin(url, location.strip())
+        raise RuntimeError('Too many HTTPS redirects')
+    finally:
+        headers.unlink(missing_ok=True)
+
+
+def fetch_metadata(url):
+    with tempfile.TemporaryDirectory(prefix='faceprint-metadata-') as temporary:
+        path = Path(temporary) / 'release.json'
+        download(url, path, 2 * 1024 * 1024)
+        return json.loads(path.read_bytes())
 
 def run(*args, capture=False):
     return subprocess.run([str(x) for x in args], check=True, text=True,
@@ -88,12 +129,7 @@ def main():
         ROOT / 'Tools/SigningIdentityCheck.swift', '-o', checker)
 
     endpoint = 'tags/v' + version(args.source_version) if args.source_version else 'latest'
-    req = urllib.request.Request(API + endpoint, headers={'Accept': 'application/vnd.github+json', 'User-Agent': 'Faceprint-local-signing'})
-    with OPENER.open(req, timeout=30) as response:
-        data = response.read(2 * 1024 * 1024 + 1)
-    if len(data) > 2 * 1024 * 1024:
-        raise RuntimeError('Release metadata is too large')
-    release = json.loads(data)
+    release = fetch_metadata(API + endpoint)
     if release.get('draft') or release.get('prerelease'):
         raise RuntimeError('A stable published source release is required')
     source = version(release['tag_name'])
@@ -118,20 +154,13 @@ def main():
     with tempfile.TemporaryDirectory(prefix='faceprint-signing-') as temporary:
         work = Path(temporary)
         archive = work / 'source.zip'
-        digest = hashlib.sha256()
-        count = 0
         print(f'Downloading verified Faceprint {source}…', flush=True)
-        with OPENER.open(expected_url, timeout=120) as response, archive.open('wb') as output:
-            while True:
-                chunk = response.read(1024 * 1024)
-                if not chunk:
-                    break
-                count += len(chunk)
-                if count > asset['size'] or count > MAX_ARCHIVE:
-                    raise RuntimeError('Archive exceeds its expected size')
+        download(expected_url, archive, asset['size'])
+        digest = hashlib.sha256()
+        with archive.open('rb') as downloaded:
+            for chunk in iter(lambda: downloaded.read(1024 * 1024), b''):
                 digest.update(chunk)
-                output.write(chunk)
-        if count != asset['size'] or digest.hexdigest() != expected[7:].lower():
+        if archive.stat().st_size != asset['size'] or digest.hexdigest() != expected[7:].lower():
             raise RuntimeError('Source archive integrity check failed')
         run(checker, '--inspect-archive', archive)
         extracted = work / 'extracted'

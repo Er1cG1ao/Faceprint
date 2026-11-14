@@ -11,8 +11,8 @@ import sys
 ROOT = Path(__file__).resolve().parents[1]
 CONFIG = ROOT / '.signing.local.json'
 
-def identities():
-    result = subprocess.run(['/usr/bin/security', 'find-identity', '-v', '-p', 'codesigning'],
+def identities(valid_only=True):
+    result = subprocess.run(['/usr/bin/security', 'find-identity', *(['-v'] if valid_only else []), '-p', 'codesigning'],
                             check=True, text=True, capture_output=True)
     return [(sha.upper(), name) for sha, name in re.findall(r'\b([0-9A-Fa-f]{40})\s+"([^"]+)"', result.stdout)
             if name.startswith(('Apple Development:', 'Developer ID Application:'))]
@@ -53,6 +53,8 @@ def main():
     if args.identity:
         candidates = [(sha, name) for sha, name in candidates if sha == args.identity.upper() or name == args.identity]
     if not candidates:
+        if identities(valid_only=False):
+            raise SystemExit('An Apple certificate/private-key pair exists, but macOS does not mark it valid. Verify certificate dates and the Apple WWDR intermediate chain; do not recreate the key unnecessarily.')
         raise SystemExit('No matching Apple signing identity. Install Xcode, sign in under Settings > Accounts, then Manage Certificates > + > Apple Development.')
     if len(candidates) != 1:
         print('Multiple signing identities are available. Choose one with --identity SHA1:', file=sys.stderr)
