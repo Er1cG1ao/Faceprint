@@ -1,4 +1,5 @@
 import Foundation
+import CryptoKit
 
 private func executingOnMainThread() -> Bool { Thread.isMainThread }
 
@@ -29,20 +30,75 @@ enum FaceprintSelfTest {
             }
         }
         var retry = AutomaticRetryBudget()
-        precondition(!retry.claim(for: "a", enabled: false, recognitionFailed: true))
-        precondition(!retry.claim(for: "a", enabled: true, recognitionFailed: false), "Never repeat password delivery")
-        precondition(retry.claim(for: "a", enabled: true, recognitionFailed: true))
-        precondition(!retry.claim(for: "a", enabled: true, recognitionFailed: true), "Only one automatic retry")
+        precondition(!retry.claim(for: "a", enabled: false, retryableFailure: true))
+        precondition(!retry.claim(for: "a", enabled: true, retryableFailure: false), "Do not retry successful deliveries")
+        precondition(retry.claim(for: "a", enabled: true, retryableFailure: true))
+        precondition(!retry.claim(for: "a", enabled: true, retryableFailure: true), "Only one automatic retry")
         retry.observeAbsence(now: 1)
         retry.observeAbsence(now: 1.5)
-        precondition(!retry.claim(for: "a", enabled: true, recognitionFailed: true), "AX transition gap is not a new request")
+        precondition(!retry.claim(for: "a", enabled: true, retryableFailure: true), "AX transition gap is not a new request")
         retry.observeAbsence(now: 2)
         retry.observeAbsence(now: 4.1)
-        precondition(retry.claim(for: "a", enabled: true, recognitionFailed: true), "A dismissed/reopened request has a fresh budget")
-        precondition(retry.claim(for: "b", enabled: true, recognitionFailed: true))
+        precondition(retry.claim(for: "a", enabled: true, retryableFailure: true), "A dismissed/reopened request has a fresh budget")
+        precondition(retry.claim(for: "b", enabled: true, retryableFailure: true))
         retry.reset()
-        precondition(retry.claim(for: "b", enabled: true, recognitionFailed: true), "Manual retry resets the budget")
-        print("PASS one automatic recognition retry; no delivery retry, transition-gap reset or repeated retry loop")
+        precondition(retry.claim(for: "b", enabled: true, retryableFailure: true), "Manual retry resets the budget")
+        print("PASS one automatic recognition retry; no successful-delivery retry, transition-gap reset or repeated retry loop")
+        for sameContext in [false, true] {
+            for emptyVerified in [false, true] {
+                let allowed = sameContext && emptyVerified
+                precondition(RetryRequestEvidence(sameContext: sameContext, sameElement: false, sameWindow: true,
+                    matchingFrame: false, headingsCompatible: true, headingRecorded: true, settingsDelegate: false,
+                    verifiedEmptyTarget: emptyVerified).permitsRetry == allowed,
+                    "A recreated AX field may retry only in the same verified empty card")
+                precondition(RetryRequestEvidence(sameContext: sameContext, sameElement: false, sameWindow: false,
+                    matchingFrame: false, headingsCompatible: true, headingRecorded: true, settingsDelegate: true,
+                    verifiedEmptyTarget: emptyVerified).permitsRetry == allowed,
+                    "Settings host delegation can start a fresh scan, never bypass empty/signed verification")
+            }
+        }
+        precondition(!RetryRequestEvidence(sameContext: true, sameElement: false, sameWindow: false,
+            matchingFrame: true, headingsCompatible: true, headingRecorded: false, settingsDelegate: false,
+            verifiedEmptyTarget: true).permitsRetry, "Geometry alone cannot identify a request")
+        precondition(!RetryRequestEvidence(sameContext: true, sameElement: false, sameWindow: true,
+            matchingFrame: true, headingsCompatible: false, headingRecorded: true, settingsDelegate: false,
+            verifiedEmptyTarget: true).permitsRetry, "Changed action/file heading must not inherit retry")
+        precondition(RetryRequestEvidence(sameContext: true, sameElement: false, sameWindow: false,
+            matchingFrame: true, headingsCompatible: true, headingRecorded: true, settingsDelegate: false,
+            verifiedEmptyTarget: true).permitsRetry)
+        print("PASS retry across recreated fields/linked Settings stages; nonempty, wrong-request, wrong-heading and geometry-only rejection")
+
+        let oldKey = SymmetricKey(size: .bits256), newKey = SymmetricKey(size: .bits256)
+        let password = Data("synthetic-test-password".utf8)
+        let face = Data("synthetic-face-payload".utf8)
+        let oldPassword = try AES.GCM.seal(password, using: oldKey, authenticating: Data("password.v1".utf8)).combined!
+        let oldFace = try AES.GCM.seal(face, using: oldKey, authenticating: Data("face.v1".utf8)).combined!
+        let migratedVault = try SecureCredentialManager.reencrypt(password: oldPassword, face: oldFace, from: oldKey, to: newKey)
+        let actualPassword = try AES.GCM.open(AES.GCM.SealedBox(combined: migratedVault.password!), using: newKey,
+                                            authenticating: Data("password.v1".utf8))
+        let actualFace = try AES.GCM.open(AES.GCM.SealedBox(combined: migratedVault.face!), using: newKey,
+                                        authenticating: Data("face.v1".utf8))
+        precondition(actualPassword == password && actualFace == face)
+        let originalPassword = try AES.GCM.open(AES.GCM.SealedBox(combined: oldPassword), using: oldKey,
+                                              authenticating: Data("password.v1".utf8))
+        precondition(originalPassword == password, "Migration must preserve recoverable legacy ciphertext")
+        var corrupt = oldFace; corrupt[corrupt.count - 1] ^= 1
+        do {
+            _ = try SecureCredentialManager.reencrypt(password: oldPassword, face: corrupt, from: oldKey, to: newKey)
+            preconditionFailure("Corrupted legacy data must not produce a migrated vault")
+        } catch { }
+        do {
+            _ = try SecureCredentialManager.reencrypt(password: oldFace, face: oldPassword, from: oldKey, to: newKey)
+            preconditionFailure("Face/password ciphertext purposes are not interchangeable")
+        } catch { }
+        let emptyPayloads = try SecureCredentialManager.reencrypt(password: nil, face: nil, from: oldKey, to: newKey)
+        precondition(emptyPayloads.password == nil && emptyPayloads.face == nil)
+        if SecureEnclave.isAvailable {
+            _ = try await performPromptWork { try SecureCredentialManager.checkProtectionAvailability(); return true }
+            print("PASS noninteractive device-only Secure Enclave ECDH with authentication UI prohibited (no saved data accessed)")
+        } else { print("SKIP live Secure Enclave probe: hardware unavailable in this test runtime") }
+        print("PASS legacy password/face resealing, preserved originals, purpose/tamper rejection and empty-vault migration")
+
         var faceGate = FaceMatchGate()
         precondition(!faceGate.observe(frame: 1, matched: true))
         precondition(!faceGate.observe(frame: 1, matched: true), "One frame cannot count twice")

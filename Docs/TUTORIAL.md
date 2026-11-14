@@ -2,7 +2,7 @@
 
 [Home](../README.md) · **English** · [简体中文](TUTORIAL.zh-CN.md)
 
-This guide describes Faceprint 1.5.2.
+This guide describes Faceprint 1.6.0.
 
 ## Set up
 
@@ -30,7 +30,7 @@ The settings session starts locked, showing **Session locked** until authenticat
 
 After setup, enable filling and click **Lock session**. Enabled autofill keeps running while all editable controls remain locked. Opening Settings shows Faceprint in the Dock and Cmd-Tab. Closing Settings hides those entries and locks the settings session; the menu bar app and enabled autofill continue to run. Settings automatically lock after 5 minutes without a settings change. Unlocking is sufficient for editing: you do not need to turn autofill off. Enrollment temporarily takes over the camera, then automatic filling resumes with its preference unchanged. Updating the password interrupts an active automatic fill; deleting saved data stops filling after confirmation. Locking settings cancels an unfinished enrollment, but does not cancel a recognition/fill already in progress.
 
-The encrypted data session is separate. It has no 30-minute idle expiry. Its key still requires macOS user-presence authentication after app launch, screen lock, sleep, or user-session switch. Faceprint remembers the filling switch and can authenticate to resume enabled autofill at launch. After a data lock, the next supported prompt can request authentication; unlocking the Settings session retries it. Cancelling authentication pauses automatic retries until you explicitly retry. Resuming autofill leaves settings locked.
+The encrypted data session is separate. It has no idle-time expiry and no Resume autofill authentication. V2 data is encrypted with a device-only Secure Enclave key available while macOS is unlocked, without per-use user-presence enforcement. Faceprint clears cached data and stops recognition at sleep, screen lock, user switch and quit; when the Mac is available again, enabled autofill reopens its store automatically without another fingerprint. Editing still requires Unlock session. Existing v1 data needs one explicit Settings unlock to migrate; the encrypted original is backed up before the v2 replacement. No migration failure deletes saved data.
 
 Choose **Settings…** from the menu to reopen Settings. If the menu bar icon is hidden, launch the running Faceprint app again (for example from Applications or Spotlight). This reopens Settings; it does not quit the background app. **Quit Faceprint** stops recognition and clears the data-session key.
 
@@ -114,16 +114,23 @@ For reports, include app/macOS versions, camera model, steps, and the visible st
 
 ## Behavior and animation
 
-In General → Behavior, Retry on notch hover controls hover activation after a failed scan while the island is visible. Auto retry once after failure is off by default: it retries recognition once for the same rediscovered, Apple-verified request after the failure feedback ends. Each retry uses fresh frames and a fresh face match. Disabling the option, disabling filling, editing saved faces/password, sleep or locking the screen cancels a pending retry. Once the password-stage handoff begins, input failures are not retried automatically to avoid duplicate delivery. A manual hover retry resets the retry budget.
+In General → Behavior, Retry on notch hover controls hover activation after a failed scan while the failed request remains present; the collapsed notch/pill stays hoverable. Auto retry once after failure is off by default: it retries recognition once for the same rediscovered, Apple-verified request after the failure feedback ends. Each retry uses fresh frames and a fresh face match. Disabling the option, disabling filling, editing saved faces/password, sleep or locking the screen cancels a pending retry. After a handoff/input failure, a retry is allowed only for a newly verified matching empty field; a nonempty or unverifiable field blocks it. Each retry performs a new face match. A manual hover retry resets the retry budget.
 
 General → Animation has Show animation and Minimal/Original style tiles. Hiding animation does not disable recognition, filling or optional Return. Selecting a style previews it when Faceprint is idle; it does not interrupt an active scan or enrollment. Missing permissions appear at the top of General and disappear after both grants are refreshed.
 
 ## Updates and macOS permissions
 
-In About, Check contacts the public GitHub latest stable release. Automatically check for updates checks once daily on launch; it does not download or install without confirmation. Newer compatible releases show Install and Restart. Keep Faceprint at a writable /Applications or ~/Applications location. The updater checks the archive hash, paths, app metadata, architecture and signatures, then replaces the app at the same path after quitting. The previous app remains beside it as a hidden .Faceprint-backup-….app recovery copy. Saved faces, encrypted password and preferences remain in their existing locations. Restart still requires normal protected-data authentication.
+In About, Check contacts the public GitHub latest stable release. Automatically check for updates checks once daily on launch; it does not download or install without confirmation. Newer compatible releases show Install and Restart. Keep Faceprint at a writable /Applications or ~/Applications location. The updater checks the archive hash, paths, app metadata, architecture and signatures, then replaces the app at the same path after quitting. The previous app remains beside it as a hidden .Faceprint-backup-….app recovery copy. Saved faces, encrypted password and preferences remain in their existing locations. After migration to v2, restarting automatically reopens encrypted data without a Resume prompt.
 
 Current test ZIPs are ad hoc signed. Ad hoc signatures have version-specific code identity, so a GitHub updater cannot make Camera and Accessibility permissions persist by itself. About reports this limitation. Configure a stable Apple signing identity for future builds; signed installations require mutually compatible code requirements on updates. The first transition from an ad hoc build may require granting permissions again. The updater never edits TCC, resets permissions, weakens code requirements or claims that an ad hoc update will preserve access.
 
 Settings hides repetitive session/recognition footers. About keeps update progress and license links.
 
 General → Show in menu bar is directly below Launch at login. Turning it off hides only the status icon, leaving filling running. Open the app again through Applications or Spotlight to restore Settings. Changes require Unlock session. The application menu also provides Settings… (Command-comma) while the settings window is open.
+
+
+## 1.6.0 recovery and retry
+
+If upgrading a v1 vault, unlock the Settings Session once. Faceprint decrypts both old payloads, reseals them under a device-only noninteractive hardware key, then writes v2 atomically. A 0600 encrypted backup is kept at `~/Library/Application Support/GlanceFill/vault-v1-before-automatic.json`; Remove saved data removes it too. Do not replace your vault with this backup while any Faceprint instance is running. V2 is not readable by earlier versions.
+
+Command-W closes Settings and locks editing, leaving enabled autofill running. The island no longer displays a Filling label. A failed scan leaves a resting hover target until the request is dismissed; hover manually restarts after fresh request verification, and Auto retry once schedules one fresh scan automatically. Recreated AX fields and linked native password stages are supported; a changed request or a nonempty password field stops retries.

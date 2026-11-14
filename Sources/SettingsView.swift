@@ -204,13 +204,6 @@ struct SetupView: View {
                 rowDivider
                 toggleRow("Show in menu bar", detail: "",
                     isOn: Binding(get: { systemSetup.showInMenuBar }, set: systemSetup.setShowInMenuBar))
-                if controller.enabled && !controller.dataSessionReady {
-                    rowDivider
-                    row("Autofill paused", detail: "Authenticate to open protected data after launch or sleep. The settings session stays unchanged.") {
-                        Button("Resume", action: controller.resumeAutofill)
-                            .buttonStyle(.bordered).controlSize(.small).disabled(controller.busy)
-                    }
-                }
                 if systemSetup.loginNeedsApproval {
                     rowDivider
                     row("Login approval", detail: "Allow Faceprint in macOS Login Items.") {
@@ -556,6 +549,11 @@ struct SetupView: View {
                 .buttonStyle(.borderedProminent).buttonBorderShape(.capsule)
                 .controlSize(.large).font(.system(size: 13, weight: .semibold))
                 .disabled(!controller.canUnlockSettings)
+            if controller.needsVaultMigration {
+                Text("Unlock once to upgrade saved data. Autofill will then start automatically.")
+                    .font(.system(size: 11)).foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center).frame(maxWidth: 260)
+            }
         }.frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 

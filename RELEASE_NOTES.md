@@ -1,3 +1,16 @@
+# Faceprint 1.6.0
+
+- Remove Resume autofill and its separate user-presence authentication. New v2 vaults use device-only Secure Enclave encryption with a key available while macOS is unlocked; no background LocalAuthentication prompt is permitted. On sleep/screen lock/user switch, stop operations and clear cached keys, then reopen automatically when available. Retain the autofill enabled preference even while Accessibility is unavailable; transient key-access failures retry without a manual Resume action.
+- Migrate legacy v1 user-presence-protected vaults only during an explicit Settings Session unlock. Both encrypted payloads must decrypt before resealing under the new hardware key and atomically writing v2. Keep a 0600 encrypted legacy backup; deleting saved data removes both copies. Existing v1 data needs this one-time Settings unlock before automatic use; settings edits still require authentication on every settings-session unlock.
+- Add Command-W to close Settings, including cancelling enrollment while enabled autofill keeps running.
+- Remove the Filling label from the island, retaining its recognition/lock/result animation.
+- Fix retry matching: snapshot the request instead of requiring its original AX element to stay alive, accept linked empty password-stage replacements, then start a fresh scan directly. Keep one automatic retry, manual hover reset, prompt/context/heading/signature checks, and reject nonempty or unverifiable fields to avoid duplicate delivery. Mark attempts at scan start and clear stale AX-field suppression after confirmed dismissal.
+- Keep the collapsed failure notch/pill armed until its request disappears or is cancelled, so hover remains available after failure feedback ends. Hover works independently of the scan-animation preference. Disabling filling, settings-data edits, sleep, lock, or changed request cancels retry work.
+
+Validation: pure retry/request/attempt regressions, synthetic legacy password/face resealing and authenticated-data tamper/purpose tests, existing input/prompt/enrollment tests, optimized build, nested signature/archive and temporary-directory update installation checks. Live Secure Enclave migration is not verified in this runtime (hardware unavailable). Installed-app migration, wake/relaunch recovery, Command-W and hover/auto-retry still require user verification.
+
+Vault v2 deliberately removes per-use biometric/user-presence enforcement: while this Mac is unlocked, the hardware key can open the local encrypted data without another fingerprint. Face matching and Settings authorization remain software gates. Older binaries do not read v2; encrypted v1 recovery data is retained as vault-v1-before-automatic.json until saved-data removal. Never overwrite or delete the vault merely because migration/authentication failed.
+
 # Faceprint 1.5.2
 
 - Simplify the menu bar menu to Settings… and Quit Faceprint.

@@ -717,3 +717,67 @@ enum FillTrigger {
         }
     }
 }
+
+/// Read-only request snapshot. A retry authorizes NO input: it starts a fresh
+/// camera/match cycle against a newly classified Apple-signed empty card.
+struct PromptRetryAnchor {
+    let context: String
+    let owner: String
+    let element: AXUIElement
+    let window: AXUIElement
+    let frame: CGRect?
+    let heading: String?
+    let foregroundPID: pid_t?
+    let biometric: Bool
+
+    init(_ trigger: FillTrigger) {
+        context = trigger.requestKey
+        element = trigger.element
+        biometric = trigger.isBiometric
+        let root: AXUIElement
+        switch trigger {
+        case .password(let target):
+            owner = target.ownerBundleID
+            root = target.dialogRoot ?? target.field
+        case .biometric(let target):
+            owner = target.ownerBundleID
+            root = target.root
+        }
+        let snapshot = PasswordFallbackAnchor(root: root, button: element, ownerBundleID: owner)
+        window = snapshot.window; frame = snapshot.frame; heading = snapshot.heading
+        foregroundPID = NSWorkspace.shared.frontmostApplication?.processIdentifier
+    }
+
+    func permits(_ candidate: FillTrigger, handoffStarted: Bool) -> Bool {
+        let next = PromptRetryAnchor(candidate)
+        let verified = candidate.verifyAppleSignature() && candidate.isCurrent()
+        // Password candidate classification requires a known empty field. This
+        // blocks repeats after a partial or unverified nonempty input delivery.
+        let empty: Bool
+        if case .password(let password) = candidate { empty = PromptTarget.fieldLength(password.field) == 0 }
+        else { empty = true }
+        let matchingFrame: Bool
+        if let a = frame, let b = next.frame {
+            matchingFrame = abs(a.midX - b.midX) <= 24 && abs(a.midY - b.midY) <= 96
+                && abs(a.width - b.width) <= 32 && a.height / b.height < 2 && b.height / a.height < 2
+        } else { matchingFrame = false }
+        let foreground = NSWorkspace.shared.frontmostApplication
+        var settingsDelegate = false
+        if case .password(let password) = candidate {
+            settingsDelegate = PromptPolicy.permitsSettingsDelegateHandoff(
+                originalBundleID: owner, passwordBundleID: password.ownerBundleID,
+                originalContext: context, passwordContext: password.contextID,
+                fallbackSelected: biometric && handoffStarted,
+                focusedEmptyField: password.isCurrent(requireEmpty: true), appleSigned: verified,
+                foregroundBundleID: foreground?.bundleIdentifier,
+                foregroundUnchanged: foregroundPID != nil && foreground?.processIdentifier == foregroundPID)
+        }
+        return RetryRequestEvidence(sameContext: context == next.context,
+            sameElement: CFEqual(element, candidate.element), sameWindow: CFEqual(window, next.window),
+            matchingFrame: matchingFrame,
+            headingsCompatible: PromptPolicy.compatibleHeadings(heading, next.heading, context: context)
+                || (heading == nil && next.heading == nil),
+            headingRecorded: heading != nil && next.heading != nil, settingsDelegate: settingsDelegate,
+            verifiedEmptyTarget: verified && empty).permitsRetry
+    }
+}

@@ -156,3 +156,14 @@ About 的 Check for Updates 从 GitHub 查询最新正式 Release；自动检查
 菜单栏菜单仅保留 Settings… 和 Quit Faceprint。General 的 Launch at login 下面增加 Show in menu bar，默认开启并记住选择，修改前需解锁 Session。关闭该开关只隐藏图标，自动填写继续运行；从 Applications 或 Spotlight 再次启动正在运行的 Faceprint 即可重新打开设置，最小化的设置窗口也会恢复。设置打开时，还可在应用菜单里用 Settings…（Command-comma）。
 
 菜单中已移除 Copy diagnostics、Retry current prompt、Resume autofill 和 Lock session；前面历史版本章节提到这些菜单项的地方仅描述旧版。现在通过顶部 Session 胶囊解锁／锁定，数据锁定后解锁设置或打开支持的请求验证恢复，失败重试使用悬停、自动重试一次，或关闭后重新打开系统弹窗。
+
+
+## 1.6.0 测试版：移除 Resume 与修复重试
+
+此测试版取消 Resume autofill 和每次启动／唤醒后的指纹恢复。新 v2 保险库仍使用本机 Secure Enclave 加密，但密钥只要求 Mac 处于已解锁状态，不再要求每次使用都有人工在场验证。软件在睡眠、锁屏、切换用户或退出时清理缓存和停止操作，之后会自动打开 v2 数据并继续已开启的填写。设置 Session 的人工认证仍保留。
+
+旧 v1 数据的硬件密钥本来就要求用户验证，无法直接无验证读取。升级后只需解锁一次设置以迁移：先验证并解密旧人脸和密码，全部成功后才重加密并原子写入 v2；失败不会覆盖数据。旧加密文件备份为 `~/Library/Application Support/GlanceFill/vault-v1-before-automatic.json`（0600 权限），删除保存数据时一并删除。旧版本无法读取 v2；需要恢复时必须先退出所有 Faceprint 实例，切勿在运行时覆盖保险库。
+
+Cmd-W 关闭设置并锁定编辑，自动填写保持开启。灵动岛不再显示 Filling 文字。失败后收起的灵动岛保留悬停重试入口，直到原请求消失；自动重试至多一次，每次都重新扫描人脸并验证当前窗口。窗口换了 AX 输入框或进入密码阶段时可以重新匹配，已有内容或无法验证为空的密码框禁止重试填写。
+
+本地测试环境没有可用的 Secure Enclave，实际旧保险库迁移、唤醒恢复和原生重试体验仍需安装验证；本节描述覆盖上方旧版本的 Resume 与人工恢复说明。

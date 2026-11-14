@@ -43,6 +43,9 @@ final class FillController: ObservableObject {
     private var previewTask: Task<Void, Never>?
     private var retryTask: Task<Void, Never>?
     private var retryBudget = AutomaticRetryBudget()
+    private var retryProbing = false
+    private var retryAnchor: PromptRetryAnchor?
+    private var retryHandoffStarted = false
     private var recognizer: Recognizer?
     private var recognizerLoad: Task<Recognizer, Error>?
     private var probing = false
@@ -50,7 +53,6 @@ final class FillController: ObservableObject {
     private var traceStart: TimeInterval = 0
     private var operation: Task<Void, Never>?
     private var generation = 0
-    private var attemptedField: AXUIElement?
     private var attemptGate = PromptAttemptGate()
     private var timer: Timer?
     private var observers: [NSObjectProtocol] = []
@@ -60,7 +62,9 @@ final class FillController: ObservableObject {
     private var sleeping = false
     private var userSessionActive = true
     private var authenticationInProgress = false
-    private var runtimeAuthenticationDeferred = false
+    @Published private(set) var needsVaultMigration = false
+    private var preparingData = false
+    private var nextAutomaticDataAttempt = Date.distantPast
     private var isEnrolling = false
     private var isEditingSavedData = false
     private var settingsLastActivity = Date()
@@ -106,13 +110,13 @@ final class FillController: ObservableObject {
         ) { [weak self] _ in Task { @MainActor in self?.screenLocked = true; self?.endRuntimeSession() } }
         observers.append(NSWorkspace.shared.notificationCenter.addObserver(
             forName: NSWorkspace.didWakeNotification, object: nil, queue: .main
-        ) { [weak self] _ in Task { @MainActor in self?.sleeping = false } })
+        ) { [weak self] _ in Task { @MainActor in self?.sleeping = false; self?.nextAutomaticDataAttempt = .distantPast } })
         observers.append(NSWorkspace.shared.notificationCenter.addObserver(
             forName: NSWorkspace.sessionDidBecomeActiveNotification, object: nil, queue: .main
-        ) { [weak self] _ in Task { @MainActor in self?.userSessionActive = true } })
+        ) { [weak self] _ in Task { @MainActor in self?.userSessionActive = true; self?.nextAutomaticDataAttempt = .distantPast } })
         screenUnlockObserver = DistributedNotificationCenter.default().addObserver(
             forName: NSNotification.Name("com.apple.screenIsUnlocked"), object: nil, queue: .main
-        ) { [weak self] _ in Task { @MainActor in self?.screenLocked = false } }
+        ) { [weak self] _ in Task { @MainActor in self?.screenLocked = false; self?.nextAutomaticDataAttempt = .distantPast } }
 
         recognizerLoad = Task.detached(priority: .userInitiated) { try Recognizer() }
 
@@ -123,7 +127,6 @@ final class FillController: ObservableObject {
         // Editing authentication can interrupt an automatic scan; the user's
         // enabled preference remains intact and resumes after authentication.
         cancelOperation()
-        attemptedField = nil
         attemptGate.reset()
         let ticket = settingsAccess.beginAuthorization()
         let currentGeneration = generation
@@ -147,13 +150,14 @@ final class FillController: ObservableObject {
                 }
                 guard settingsAccess.accepts(ticket), generation == currentGeneration else { return }
                 try await Task.detached {
-                    try SecureCredentialManager.unlockSession(reason: "Open Faceprint's encrypted data", authenticationContext: context)
+                    try SecureCredentialManager.openAutofillStore(authenticationContext: context)
                 }.value
                 guard generation == currentGeneration else { SecureCredentialManager.lockSession(); return }
                 try loadRuntimeData()
                 guard settingsAccess.completeAuthorization(ticket) else { return }
                 settingsLastActivity = Date()
-                runtimeAuthenticationDeferred = false
+                nextAutomaticDataAttempt = .distantPast
+                needsVaultMigration = false
                 status = "Session unlocked. Changes are now allowed."
             } catch {
                 status = "Settings remain locked: \(error.localizedDescription)"
@@ -175,26 +179,29 @@ final class FillController: ObservableObject {
         dataSessionReady = true
     }
 
-    func resumeAutofill() {
-        guard enabled, !dataSessionReady, !busy, !authenticationInProgress, !screenLocked, !sleeping, userSessionActive else { return }
-        let currentGeneration = generation
-        authenticationInProgress = true
-        busy = true
-        status = "Authenticate once to resume protected autofill…"
+    func prepareAutofillData() {
+        guard enabled, !dataSessionReady, !preparingData, !authenticationInProgress,
+              !needsVaultMigration, Date() >= nextAutomaticDataAttempt,
+              !screenLocked, !sleeping, userSessionActive else { return }
+        preparingData = true
+        let token = generation
         Task {
-            defer { authenticationInProgress = false; busy = false }
+            defer { preparingData = false }
             do {
-                try await Task.detached {
-                    try SecureCredentialManager.unlockSession(reason: "Resume Faceprint autofill")
-                }.value
-                guard generation == currentGeneration else { SecureCredentialManager.lockSession(); return }
+                try await Task.detached { try SecureCredentialManager.openAutofillStore() }.value
+                guard token == generation, !screenLocked, !sleeping, userSessionActive else {
+                    if screenLocked || sleeping || !userSessionActive { SecureCredentialManager.lockSession() }
+                    return
+                }
                 try loadRuntimeData()
-                runtimeAuthenticationDeferred = false
-                attemptedField = nil
-                status = "Autofill ready. Settings remain locked until you unlock them to edit."
+                needsVaultMigration = false
+                attemptGate.reset()
+                status = "Autofill ready. Settings remain locked."
             } catch {
-                runtimeAuthenticationDeferred = true
-                status = "Autofill paused: \(error.localizedDescription) Use Resume autofill to try again."
+                guard token == generation else { return }
+                nextAutomaticDataAttempt = Date().addingTimeInterval(2)
+                needsVaultMigration = (error as? SecureCredentialError) == .migrationRequired
+                status = error.localizedDescription
             }
         }
     }
@@ -205,9 +212,10 @@ final class FillController: ObservableObject {
         identities = []
         hasFace = false
         dataSessionReady = false
-        runtimeAuthenticationDeferred = false
+        nextAutomaticDataAttempt = .distantPast
+        needsVaultMigration = false
         SecureCredentialManager.lockSession()
-        status = enabled ? "Protected data locked. Autofill will request authentication when needed." : "Session locked."
+        status = enabled ? "Autofill will continue automatically when this Mac is unlocked." : "Session locked."
     }
 
     func setEnabled(_ value: Bool) {
@@ -282,6 +290,11 @@ final class FillController: ObservableObject {
     func setRetryOnHover(_ value: Bool) {
         guard canEditOptions else { return }
         retryOnHover = value; GlanceSettings.shared.retryOnHover = value
+        if !busy {
+            if value, retryAnchor != nil {
+                NotchOverlayController.shared.arm(onActivate: { [weak self] in self?.retry() })
+            } else if !value { NotchOverlayController.shared.disarm() }
+        }
         settingsLastActivity = Date()
     }
     func setAutoRetryOnce(_ value: Bool) {
@@ -322,17 +335,18 @@ final class FillController: ObservableObject {
     }
 
     func retry() {
-        guard enabled, !busy else { return }
-        retryTask?.cancel(); retryTask = nil; retryBudget.reset()
-        attemptedField = nil
-        attemptGate.reset()
-        runtimeAuthenticationDeferred = false
-        status = "Retrying the current supported prompt."
+        guard enabled, dataSessionReady, !busy, !retryProbing, let retryAnchor else { return }
+        retryTask?.cancel()
+        retryBudget.reset()
+        scheduleRetry(anchor: retryAnchor, handoffStarted: retryHandoffStarted,
+                      generation: generation, automatic: false)
     }
 
     private func cancelOperation() {
         generation &+= 1
         retryTask?.cancel(); retryTask = nil; retryBudget.reset()
+        retryProbing = false; retryAnchor = nil; retryHandoffStarted = false
+        NotchOverlayController.shared.disarm()
         previewTask?.cancel(); previewTask = nil
         operation?.cancel()
         operation = nil
@@ -349,7 +363,6 @@ final class FillController: ObservableObject {
     private func prepareProtectedDataEdit(cancelEnrollment: Bool = false) {
         guard !isEnrolling || cancelEnrollment else { return }
         cancelOperation()
-        attemptedField = nil
         attemptGate.reset()
     }
 
@@ -420,10 +433,10 @@ final class FillController: ObservableObject {
             lockSettings()
         }
         guard enabled, !busy, !isEditingSavedData, !screenLocked, !sleeping, userSessionActive else { return }
-        guard !probing else { return }
+        guard !probing, !retryProbing else { return }
+        if !dataSessionReady { prepareAutofillData(); return }
         guard AXIsProcessTrusted() else {
-            status = "Grant Faceprint Accessibility access, then enable filling again."
-            enabled = false
+            status = "Allow Faceprint Accessibility access. Filling will continue automatically."
             return
         }
         let token = generation
@@ -439,13 +452,15 @@ final class FillController: ObservableObject {
             probing = false
             guard token == generation, enabled, !busy, !isEditingSavedData, !screenLocked, !sleeping, userSessionActive else { return }
             guard let trigger = result.0 else {
+                let hadAttempt = attemptGate.hasAttemptedRequest
                 _ = attemptGate.observe(nil, now: Date.timeIntervalSinceReferenceDate)
                 retryBudget.observeAbsence(now: Date.timeIntervalSinceReferenceDate)
+                if hadAttempt && !attemptGate.hasAttemptedRequest {
+                    retryAnchor = nil
+                    retryTask?.cancel(); retryTask = nil
+                    NotchOverlayController.shared.disarm()
+                }
                 if let diagnostic = result.1 { promptStatus = diagnostic }
-                return
-            }
-            if !dataSessionReady {
-                if !runtimeAuthenticationDeferred { resumeAutofill() }
                 return
             }
             handleTrigger(trigger)
@@ -469,8 +484,8 @@ final class FillController: ObservableObject {
         retryBudget.observe(trigger.requestKey)
         promptStatus = "Recognized \(trigger.description) prompt."
         guard attemptGate.observe(trigger.requestKey, now: Date.timeIntervalSinceReferenceDate) else { return }
-        if let attemptedField, CFEqual(attemptedField, trigger.element) { return }
-        attemptedField = trigger.element
+        attemptGate.mark(trigger.requestKey)
+        retryTask?.cancel(); retryTask = nil
         busy = true
         previewTask?.cancel(); previewTask = nil
         generation &+= 1
@@ -493,11 +508,15 @@ final class FillController: ObservableObject {
         status = "Looking for your face…"
         if useAnimation {
             NotchOverlayController.shared.present(onRetry: { [weak self] in self?.retry() })
-        }
-        operation = Task {
-            var recognitionFailed = false
+        } else { NotchOverlayController.shared.disarm() }
+        operation = Task { [self] in
+            var attemptFailed = false
             var handedOff = false
+            var anchor: PromptRetryAnchor?
             do {
+                anchor = try await performPromptWork { PromptRetryAnchor(trigger) }
+                retryAnchor = anchor
+                retryHandoffStarted = false
                 guard try await performPromptWork({ trigger.isCurrent() }) else { throw CancellationError() }
                 async let cameraReady: Void = camera.start(deviceID: deviceID)
                 let recognizer = try await getRecognizer()
@@ -515,7 +534,7 @@ final class FillController: ObservableObject {
                 while Date() < deadline {
                     try Task.checkCancellation()
                     guard try await performPromptWork({ trigger.isCurrent() }) else {
-                        throw FillError.message("Prompt changed. Return to the supported prompt and choose Retry from the menu.")
+                        throw FillError.message("Prompt changed. Return to the supported prompt and hover the island to retry.")
                     }
                     guard let frame = camera.latestFrame(), frame.id != lastFrame else {
                         try await Task.sleep(nanoseconds: 30_000_000)
@@ -553,14 +572,14 @@ final class FillController: ObservableObject {
                     camera.stop()
                     record("Enrolled face matched on two distinct frames")
                     handedOff = true
+                    retryHandoffStarted = true
                     if useAnimation { NotchOverlayController.shared.faceRecognized() }
                     status = trigger.isBiometric ? "Face recognized. Waiting for the password field to focus…" : "Face recognized. Filling the password field…"
                     let target = try await performPromptWork { try await trigger.passwordTargetAfterRecognition(progress: report) }
                     record("Password field ready (\(target.ownerBundleID))")
                     try Task.checkCancellation()
-                    // One attempt includes both stages. Do not immediately rescan
-                    // the newly opened password field after a failed input attempt.
-                    attemptedField = target.field
+                    // Normal polling does not rescan the transition. Any retry
+                    // requires a freshly verified empty card and a new face match.
                     let verified = try await performPromptWork {
                         var bytes = try SecureCredentialManager.readPassword()
                         defer { bytes.resetBytes(in: 0..<bytes.count) }
@@ -581,19 +600,22 @@ final class FillController: ObservableObject {
                     } else {
                         status = "Input could not be verified. Check the password field before continuing."
                     }
-                    if !verified && useAnimation { NotchOverlayController.shared.finish(success: false) }
+                    if !verified {
+                        attemptFailed = true
+                        if useAnimation { NotchOverlayController.shared.finish(success: false) }
+                    } else { retryAnchor = nil }
                     filled = true
                     break
                 }
                 if !filled {
-                    recognitionFailed = true
-                    status = "Scan timed out. Choose Retry current prompt or hover the island if enabled."
+                    attemptFailed = true
+                    status = "Scan timed out. Hover the island to retry if enabled."
                     if useAnimation { NotchOverlayController.shared.finish(success: false) }
                 }
             } catch {
                 if !Task.isCancelled {
                     status = error.localizedDescription
-                    recognitionFailed = !handedOff
+                    attemptFailed = true
                     record("Stopped: " + error.localizedDescription)
                     if useAnimation { NotchOverlayController.shared.finish(success: false) }
                 }
@@ -602,40 +624,62 @@ final class FillController: ObservableObject {
                 camera.stop()
                 busy = false
                 operation = nil
-                if !Task.isCancelled, useAutoRetry, retryBudget.claim(for: trigger.requestKey,
-                    enabled: autoRetryOnce, recognitionFailed: recognitionFailed) {
-                    scheduleAutomaticRetry(for: trigger, generation: currentGeneration)
+                if !useAnimation {
+                    if attemptFailed, retryOnHover, anchor != nil, !Task.isCancelled {
+                        NotchOverlayController.shared.arm(onActivate: { [weak self] in self?.retry() })
+                    } else { NotchOverlayController.shared.disarm() }
+                }
+                if !Task.isCancelled, useAutoRetry, let anchor,
+                   retryBudget.claim(for: trigger.requestKey, enabled: autoRetryOnce, retryableFailure: attemptFailed) {
+                    scheduleRetry(anchor: anchor, handoffStarted: handedOff,
+                                  generation: currentGeneration, automatic: true)
                 }
             }
         }
     }
 
-    private func scheduleAutomaticRetry(for original: FillTrigger, generation token: Int) {
+    private func scheduleRetry(anchor: PromptRetryAnchor, handoffStarted: Bool,
+                               generation token: Int, automatic: Bool) {
         retryTask?.cancel()
         retryTask = Task {
-            do { try await Task.sleep(for: .milliseconds(1500)) } catch { return }
-            guard !Task.isCancelled, token == generation, enabled, autoRetryOnce,
-                  dataSessionReady, !busy, !isEditingSavedData, !screenLocked,
-                  !sleeping, userSessionActive else { return }
-            let allowBiometric = automaticPasswordFallback
-            let current = await performPromptWorkSafely(allowBiometric: allowBiometric, original: original)
-            guard !Task.isCancelled, token == generation, enabled, autoRetryOnce, !busy,
-                  let current, current.requestKey == original.requestKey else { return }
-            // Rediscover and reverify the same request. Recognition starts fresh;
-            // the retry budget remains spent until manual retry or a new request.
-            attemptedField = nil
-            attemptGate.reset()
-            handleTrigger(current)
+            if automatic {
+                do { try await Task.sleep(for: .milliseconds(1500)) } catch { return }
+            }
+            guard retryIsAllowed(token: token, automatic: automatic) else { return }
+            retryProbing = true
+            let deadline = Date().addingTimeInterval(0.8)
+            while Date() < deadline {
+                let allowBiometric = automaticPasswordFallback
+                let current = try? await performPromptWork {
+                    let target = FillTrigger.current(allowBiometric: allowBiometric)
+                    return target.flatMap { anchor.permits($0, handoffStarted: handoffStarted) ? $0 : nil }
+                }
+                guard retryIsAllowed(token: token, automatic: automatic) else {
+                    if token == generation { retryProbing = false }
+                    return
+                }
+                if let current {
+                    retryProbing = false; retryTask = nil
+                    attemptGate.reset()
+                    record(automatic ? "Automatic retry: fresh face scan" : "Hover retry: fresh face scan")
+                    handleTrigger(current)
+                    return
+                }
+                do { try await Task.sleep(for: .milliseconds(40)) } catch {
+                    if token == generation { retryProbing = false }
+                    return
+                }
+            }
+            retryProbing = false; retryTask = nil
+            retryAnchor = nil
+            record("Retry stopped: no verified empty card matches the request")
+            NotchOverlayController.shared.disarm()
         }
     }
-    private func performPromptWorkSafely(allowBiometric: Bool, original: FillTrigger) async -> FillTrigger? {
-        await Task.detached(priority: .userInitiated) {
-            let target = FillTrigger.current(allowBiometric: allowBiometric)
-            guard let target, target.verifyAppleSignature(), original.isCurrent(),
-                  target.requestKey == original.requestKey,
-                  CFEqual(target.element, original.element) else { return nil }
-            return target
-        }.value
+
+    private func retryIsAllowed(token: Int, automatic: Bool) -> Bool {
+        !Task.isCancelled && token == generation && enabled && (!automatic || autoRetryOnce)
+            && dataSessionReady && !busy && !isEditingSavedData && !screenLocked && !sleeping && userSessionActive
     }
 
     func removeSavedData() {
@@ -685,6 +729,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         applicationMenu.addItem(quitItem)
         applicationMenuItem.submenu = applicationMenu
         mainMenu.addItem(applicationMenuItem)
+        let windowMenuItem = NSMenuItem()
+        let windowMenu = NSMenu(title: "Window")
+        let closeItem = windowMenu.addItem(withTitle: "Close Window", action: #selector(closeSettings), keyEquivalent: "w")
+        closeItem.target = self
+        windowMenuItem.submenu = windowMenu
+        mainMenu.addItem(windowMenuItem)
+        NSApp.windowsMenu = windowMenu
         NSApp.mainMenu = mainMenu
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         statusItem.button?.image = NSImage(systemSymbolName: "faceid", accessibilityDescription: "Faceprint")
@@ -733,7 +784,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         let loginLaunch = event?.paramDescriptor(forKeyword: keyAEPropData)?.enumCodeValue == keyAELaunchedAsLogInItem
         if !loginLaunch { showWindow() }
         Task { await systemSetup.requestFirstLaunchPermissions() }
-        controller.resumeAutofill()
+        controller.prepareAutofillData()
         Task {
             try? await Task.sleep(for: .seconds(5))
             updater.checkAutomaticallyIfNeeded()
@@ -750,6 +801,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         return false
     }
     func applicationDidBecomeActive(_ notification: Notification) { systemSetup.refresh() }
+    @objc func closeSettings() { window.performClose(nil) }
     @objc func showWindow() {
         NSApp.setActivationPolicy(.regular)
         NSApp.activate(ignoringOtherApps: true)

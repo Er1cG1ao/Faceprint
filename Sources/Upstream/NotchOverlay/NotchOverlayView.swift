@@ -257,13 +257,6 @@ struct NotchOverlayView: View {
                     OnboardingNotchView(controller: onboardingController)
                 } else {
                     scanContent
-                        .overlay(alignment: .bottom) {
-                            if controller.faceIsMatched && controller.phase == .scanning {
-                                Label("Filling…", systemImage: "checkmark.circle.fill")
-                                    .font(.system(size: 10, weight: .medium)).foregroundStyle(.green)
-                                    .padding(.bottom, isMinimalScan ? 1 : 12)
-                            }
-                        }
                 }
             }
             // Content dissolves (blur + fade) as the panel shrinks, rather than being

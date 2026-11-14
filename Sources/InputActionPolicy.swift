@@ -50,6 +50,7 @@ struct PasswordFieldReadiness {
 struct PromptAttemptGate {
     private var attempted: String?
     private var absentSince: TimeInterval?
+    var hasAttemptedRequest: Bool { attempted != nil }
     mutating func mark(_ key: String) { attempted = key; absentSince = nil }
     mutating func reset() { attempted = nil; absentSince = nil }
     mutating func observe(_ key: String?, now: TimeInterval) -> Bool {
@@ -85,7 +86,7 @@ struct FaceMatchGate {
 }
 
 /// One automatic retry per visible authentication request. Manual retry starts
-/// a new budget; a retry never reuses a face match or retries password delivery.
+/// a new budget; a retry never reuses a face match or reuses an unverified password delivery.
 struct AutomaticRetryBudget {
     private var request: String?
     private var spent = false
@@ -99,10 +100,26 @@ struct AutomaticRetryBudget {
         if now - (absentSince ?? now) >= 2 { reset() }
     }
     mutating func reset() { request = nil; spent = false; absentSince = nil }
-    mutating func claim(for key: String, enabled: Bool, recognitionFailed: Bool) -> Bool {
+    mutating func claim(for key: String, enabled: Bool, retryableFailure: Bool) -> Bool {
         observe(key)
-        guard enabled, recognitionFailed, !spent else { return false }
+        guard enabled, retryableFailure, !spent else { return false }
         spent = true
         return true
+    }
+}
+
+struct RetryRequestEvidence {
+    let sameContext: Bool
+    let sameElement: Bool
+    let sameWindow: Bool
+    let matchingFrame: Bool
+    let headingsCompatible: Bool
+    let headingRecorded: Bool
+    let settingsDelegate: Bool
+    let verifiedEmptyTarget: Bool
+    var permitsRetry: Bool {
+        guard sameContext, verifiedEmptyTarget else { return false }
+        return settingsDelegate || (headingsCompatible &&
+            (sameElement || sameWindow || (matchingFrame && headingRecorded)))
     }
 }

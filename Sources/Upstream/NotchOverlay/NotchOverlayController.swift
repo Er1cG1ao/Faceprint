@@ -285,6 +285,9 @@ final class NotchOverlayController {
         faceIsMatched = false
         resolveTask?.cancel()
         scanTimeoutTask?.cancel()
+        // Keep a failed request's resting notch/pill available for hover retry.
+        isArmed = !success && GlanceSettings.shared.retryOnHover && onActivate != nil
+        isPillDocked = isArmed
 
         // Unlock Animation → None just skips the success/failure video; phase and
         // retry behavior are unaffected. Reads the cycle's captured style, not live settings.
@@ -362,6 +365,8 @@ final class NotchOverlayController {
         scanTimeoutTask?.cancel(); scanTimeoutTask = nil
         phase = .closed
         content = .scan(.idle)
+        isArmed = false
+        onActivate = nil
         isPillDocked = false
         windowController.setInteractive(false)
         windowController.hide()

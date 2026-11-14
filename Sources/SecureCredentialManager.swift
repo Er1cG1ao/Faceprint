@@ -3,11 +3,12 @@ import CryptoKit
 import LocalAuthentication
 import Security
 
-enum SecureCredentialError: LocalizedError {
+enum SecureCredentialError: LocalizedError, Equatable {
     case emptyPassword
     case sessionLocked
     case unsupportedHardware
     case invalidVault
+    case migrationRequired
 
     var errorDescription: String? {
         switch self {
@@ -15,6 +16,7 @@ enum SecureCredentialError: LocalizedError {
         case .sessionLocked: return "Unlock your Faceprint session first."
         case .unsupportedHardware: return "This Mac does not offer an available Secure Enclave."
         case .invalidVault: return "The saved Faceprint vault cannot be read. Its data has been preserved."
+        case .migrationRequired: return "Unlock Settings once to upgrade saved data for automatic filling."
         }
     }
 }
@@ -33,6 +35,8 @@ enum SecureCredentialManager {
     }
 
     private static let lock = NSLock()
+    private static let openingLock = NSLock()
+    private static var revision: UInt64 = 0
     private static var key: SymmetricKey?
     private static var vault: Vault?
     private static var activity: Date?
@@ -64,7 +68,7 @@ enum SecureCredentialManager {
             throw SecureCredentialError.invalidVault
         }
         let saved = try JSONDecoder().decode(Vault.self, from: Data(contentsOf: fileURL))
-        guard saved.version == 1, saved.peerPublicKey.count == 65,
+        guard (1...2).contains(saved.version), saved.peerPublicKey.count == 65,
               saved.salt.count == 32, !saved.keyRepresentation.isEmpty,
               saved.keyRepresentation.count < 65536 else { throw SecureCredentialError.invalidVault }
         return saved
@@ -87,7 +91,7 @@ enum SecureCredentialManager {
         let secret = try protected.sharedSecretFromKeyAgreement(with: peer)
         return secret.hkdfDerivedSymmetricKey(
             using: SHA256.self, salt: saved.salt,
-            sharedInfo: Data("local.giao.glancefill.vault.v1".utf8), outputByteCount: 32
+            sharedInfo: Data("local.giao.glancefill.vault.v\(saved.version)".utf8), outputByteCount: 32
         )
     }
 
@@ -99,7 +103,7 @@ enum SecureCredentialManager {
         context.interactionNotAllowed = true
         guard let access = SecAccessControlCreateWithFlags(
             nil, kSecAttrAccessibleWhenUnlockedThisDeviceOnly,
-            [.privateKeyUsage, .userPresence], nil
+            [.privateKeyUsage], nil
         ) else { throw SecureCredentialError.unsupportedHardware }
         let probe = try SecureEnclave.P256.KeyAgreement.PrivateKey(accessControl: access,
                                                                  authenticationContext: context)
@@ -108,53 +112,101 @@ enum SecureCredentialManager {
         guard probe.publicKey.x963Representation == restored.publicKey.x963Representation else {
             throw SecureCredentialError.invalidVault
         }
+        // Exercise the actual noninteractive ECDH operation, not just key parsing.
+        let peer = P256.KeyAgreement.PrivateKey()
+        _ = try restored.sharedSecretFromKeyAgreement(with: peer.publicKey)
     }
 
-    /// Runs off the main thread. The ECDH operation itself requires userPresence
-    /// inside the Secure Enclave. A separate yes/no authentication gate is not used.
-    static func unlockSession(reason: String, authenticationContext: LAContext? = nil) throws {
-        if isSessionUnlocked { return }
-        guard SecureEnclave.isAvailable else { throw SecureCredentialError.unsupportedHardware }
-        let context = authenticationContext ?? LAContext()
-        context.localizedReason = reason
-        let saved: Vault
-        let creating: Bool
-        if let existing = try readVault() {
-            saved = existing
-            creating = false
-        } else {
-            var error: Unmanaged<CFError>?
-            guard let access = SecAccessControlCreateWithFlags(
-                nil, kSecAttrAccessibleWhenUnlockedThisDeviceOnly,
-                [.privateKeyUsage, .userPresence], &error
-            ) else {
-                if let error { throw error.takeRetainedValue() as Error }
-                throw SecureCredentialError.unsupportedHardware
-            }
-            let protected = try SecureEnclave.P256.KeyAgreement.PrivateKey(
-                accessControl: access, authenticationContext: context
-            )
-            let peer = P256.KeyAgreement.PrivateKey()
-            var salt = Data(count: 32)
-            let status = salt.withUnsafeMutableBytes { bytes in
-                SecRandomCopyBytes(kSecRandomDefault, bytes.count, bytes.baseAddress!)
-            }
-            guard status == errSecSuccess else { throw SecureCredentialError.invalidVault }
-            saved = Vault(keyRepresentation: protected.dataRepresentation,
-                          peerPublicKey: peer.publicKey.x963Representation, salt: salt)
-            creating = true
-        }
-        let sessionKey = try deriveKey(from: saved, context: context)
-        if creating { try writeVault(saved) }
+    /// New vaults use a device-only hardware key available while the Mac is
+    /// unlocked. Only a legacy v1 migration needs the explicit Settings LAContext.
+    static func openAutofillStore(authenticationContext: LAContext? = nil) throws {
+        openingLock.lock()
+        defer { openingLock.unlock() }
         lock.lock()
+        let ticket = revision
+        let alreadyOpen = key != nil
+        lock.unlock()
+        if alreadyOpen { return }
+        guard SecureEnclave.isAvailable else { throw SecureCredentialError.unsupportedHardware }
+        let background = LAContext()
+        background.interactionNotAllowed = true
+        let existing = try readVault()
+        var saved: Vault
+        let sessionKey: SymmetricKey
+        var mustWrite = false
+        if let existing, existing.version == 1 {
+            guard let authenticationContext else { throw SecureCredentialError.migrationRequired }
+            // Settings has already authenticated. Never open a second Resume prompt.
+            authenticationContext.interactionNotAllowed = true
+            let oldKey = try deriveKey(from: existing, context: authenticationContext)
+            (saved, sessionKey) = try createAutomaticVault(context: background)
+            let migrated = try reencrypt(password: existing.password, face: existing.face,
+                                         from: oldKey, to: sessionKey)
+            saved.password = migrated.password
+            saved.face = migrated.face
+            mustWrite = true
+        } else if let existing {
+            saved = existing
+            sessionKey = try deriveKey(from: saved, context: background)
+        } else {
+            (saved, sessionKey) = try createAutomaticVault(context: background)
+            mustWrite = true
+        }
+        lock.lock()
+        defer { lock.unlock() }
+        guard ticket == revision else { throw SecureCredentialError.sessionLocked }
+        if mustWrite {
+            if existing?.version == 1 {
+                let backup = fileURL.deletingLastPathComponent().appendingPathComponent("vault-v1-before-automatic.json")
+                if !FileManager.default.fileExists(atPath: backup.path) {
+                    try Data(contentsOf: fileURL).write(to: backup, options: .atomic)
+                    try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: backup.path)
+                }
+            }
+            // Nothing is replaced until BOTH legacy payloads authenticate/decrypt.
+            try writeVault(saved)
+        }
         vault = saved
         key = sessionKey
         activity = Date()
-        lock.unlock()
+    }
+
+    private static func createAutomaticVault(context: LAContext) throws -> (Vault, SymmetricKey) {
+        var error: Unmanaged<CFError>?
+        guard let access = SecAccessControlCreateWithFlags(nil,
+            kSecAttrAccessibleWhenUnlockedThisDeviceOnly, [.privateKeyUsage], &error) else {
+            if let error { throw error.takeRetainedValue() as Error }
+            throw SecureCredentialError.unsupportedHardware
+        }
+        let protected = try SecureEnclave.P256.KeyAgreement.PrivateKey(accessControl: access, authenticationContext: context)
+        let peer = P256.KeyAgreement.PrivateKey()
+        var salt = Data(count: 32)
+        guard salt.withUnsafeMutableBytes({ SecRandomCopyBytes(kSecRandomDefault, $0.count, $0.baseAddress!) }) == errSecSuccess else {
+            throw SecureCredentialError.invalidVault
+        }
+        let saved = Vault(version: 2, keyRepresentation: protected.dataRepresentation,
+                          peerPublicKey: peer.publicKey.x963Representation, salt: salt)
+        return (saved, try deriveKey(from: saved, context: context))
+    }
+
+    static func reencrypt(password: Data?, face: Data?, from old: SymmetricKey,
+                          to new: SymmetricKey) throws -> (password: Data?, face: Data?) {
+        func reseal(_ data: Data?, purpose: String) throws -> Data? {
+            guard let data else { return nil }
+            var plaintext = try AES.GCM.open(AES.GCM.SealedBox(combined: data), using: old,
+                                             authenticating: Data(purpose.utf8))
+            defer { plaintext.resetBytes(in: 0..<plaintext.count) }
+            guard let sealed = try AES.GCM.seal(plaintext, using: new, authenticating: Data(purpose.utf8)).combined else {
+                throw SecureCredentialError.invalidVault
+            }
+            return sealed
+        }
+        return (try reseal(password, purpose: "password.v1"), try reseal(face, purpose: "face.v1"))
     }
 
     static func lockSession() {
         lock.lock()
+        revision &+= 1
         key = nil
         vault = nil
         activity = nil
@@ -204,9 +256,11 @@ enum SecureCredentialManager {
     static func deleteSavedData() throws {
         lock.lock()
         defer { lock.unlock() }
-        if FileManager.default.fileExists(atPath: fileURL.path) {
-            try FileManager.default.removeItem(at: fileURL)
+        let backup = fileURL.deletingLastPathComponent().appendingPathComponent("vault-v1-before-automatic.json")
+        for path in [backup, fileURL] where FileManager.default.fileExists(atPath: path.path) {
+            try FileManager.default.removeItem(at: path)
         }
+        revision &+= 1
         key = nil
         vault = nil
         activity = nil
