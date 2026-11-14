@@ -1,5 +1,6 @@
 import Foundation
 import Security
+import CryptoKit
 import Darwin
 
 /// Validate Apple's signature chain and pin the default designated requirement.
@@ -38,6 +39,18 @@ enum SigningIdentityCheck {
             throw UpdateError.message("Could not obtain the application's designated requirement.")
         }
         let requirement = raw as Data
+        let policyURL = baseline.deletingLastPathComponent().appendingPathComponent("SigningIdentity.json")
+        if FileManager.default.fileExists(atPath: policyURL.path) {
+            let policy = try JSONSerialization.jsonObject(with: Data(contentsOf: policyURL)) as? [String: Any]
+            let digest = SHA256.hash(data: requirement).map { String(format: "%02x", $0) }.joined()
+            guard policy?["schema"] as? Int == 1,
+                  policy?["bundle_id"] as? String == UpdatePolicy.bundleID,
+                  policy?["team_id"] as? String == team,
+                  policy?["designated_requirement_sha256"] as? String == digest else {
+                throw UpdateError.message("Signing identity does not match Faceprint's published identity policy. Build stopped.")
+            }
+            print("Published Faceprint signing identity verified.")
+        }
         if args.count == 4 {
             guard try AppUpdateIdentity.check(candidate: app, installed: URL(fileURLWithPath: args[3])) else {
                 throw UpdateError.message("Cross-version signing requirements are not compatible.")

@@ -110,3 +110,8 @@ The signed ZIP and `signing-report.json` are written to a unique Downloads folde
 
 
 The local signing downloader uses `/usr/bin/curl` with normal TLS verification, HTTPS-only URLs and per-redirect GitHub host checks. This avoids Python.org installations whose separate CA bundle is not configured; it never uses `--insecure`, an unverified SSL context, or global trust overrides. Download limits, GitHub SHA-256 and archive/signature checks remain mandatory. If a certificate/private-key pair appears under matching identities but not valid identities, diagnose its trust chain; Apple Development normally uses the Apple WWDR G3 intermediate. Import the genuine Apple intermediate under normal trust rather than changing the leaf to Always Trust.
+
+
+## Published signing identity (1.6.1)
+
+SigningIdentity.json records only public identity metadata: Team ID, the reviewed leaf certificate fingerprint and the SHA-256 of the default designated requirement. SigningIdentityCheck enforces the Team and requirement hash before creating/updating a local baseline. Certificate renewal can be compatible if requirements stay unchanged; changing requirement type, team or account identity requires explicit review rather than silently updating the policy. Private keys stay on the signing Mac; the build Mac cannot sign merely by receiving a signed application. Public release artifacts after 1.6.1 must not regress to ad hoc signing.

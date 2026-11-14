@@ -2,11 +2,11 @@
 
 [Home](../README.md) · **English** · [简体中文](TUTORIAL.zh-CN.md)
 
-This guide describes Faceprint 1.6.0.
+This guide describes Faceprint 1.6.1.
 
 ## Set up
 
-Download the app ZIP from [Releases](https://github.com/Er1cG1ao/faceprint/releases), quit any older instance, extract it, and move Faceprint into Applications. The app requires Apple Silicon and macOS 15+. It is ad hoc signed and not Apple-notarized.
+Download the app ZIP from [Releases](https://github.com/Er1cG1ao/faceprint/releases), quit any older instance, extract it, and move Faceprint into Applications. The app requires Apple Silicon and macOS 15+. Version 1.6.1 is Apple Development signed and not Apple-notarized.
 
 On first launch, Faceprint requests Camera access and prompts for Accessibility access. On **General**, check both statuses under **Permissions** at the top (the block hides once both are granted). Camera is used for local recognition; Accessibility is used to inspect supported system dialogs and type into their password fields. If access is blocked, use the permission buttons and allow Faceprint in System Settings. Return to Faceprint to refresh the status.
 
@@ -122,7 +122,7 @@ General → Animation has Show animation and Minimal/Original style tiles. Hidin
 
 In About, Check contacts the public GitHub latest stable release. Automatically check for updates checks once daily on launch; it does not download or install without confirmation. Newer compatible releases show Install and Restart. Keep Faceprint at a writable /Applications or ~/Applications location. The updater checks the archive hash, paths, app metadata, architecture and signatures, then replaces the app at the same path after quitting. The previous app remains beside it as a hidden .Faceprint-backup-….app recovery copy. Saved faces, encrypted password and preferences remain in their existing locations. After migration to v2, restarting automatically reopens encrypted data without a Resume prompt.
 
-Current test ZIPs are ad hoc signed. Ad hoc signatures have version-specific code identity, so a GitHub updater cannot make Camera and Accessibility permissions persist by itself. About reports this limitation. Configure a stable Apple signing identity for future builds; signed installations require mutually compatible code requirements on updates. The first transition from an ad hoc build may require granting permissions again. The updater never edits TCC, resets permissions, weakens code requirements or claims that an ad hoc update will preserve access.
+The 1.6.1 release is signed with a fixed Apple Development identity. The first transition from older ad hoc builds may require Camera/Accessibility authorization once again. Future updates must satisfy the existing signing identity; using the same app name or installation path alone is insufficient. The updater never edits TCC, resets permissions, weakens code requirements or guarantees OS permission retention. The package is development-signed and is not Apple-notarized.
 
 Settings hides repetitive session/recognition footers. About keeps update progress and license links.
 

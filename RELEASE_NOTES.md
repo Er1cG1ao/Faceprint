@@ -1,3 +1,12 @@
+# Faceprint 1.6.1
+
+- Publish the owner-signed Apple Development package from the Mac holding the private key. Main app and installer share Team QKA3ST9DRU; the leaf certificate fingerprint matches the owner's confirmed certificate. No private key was exported or uploaded.
+- Pin the public Team ID and default designated-requirement hash in SigningIdentity.json. Signed builds must match this policy as well as their local requirement baseline; the updater retains its mutual signing-requirement checks.
+- Runtime functionality is unchanged from 1.6.0. Verify metadata version 1.6.1 / build 37, unchanged entitlements/resources, and matching executable payloads after removing signatures and normalizing signing-only LINKEDIT reservations.
+- The first ad hoc-to-certificate upgrade may require one more Camera/Accessibility authorization. Future builds must retain compatible signing identity; live TCC permission retention is not claimed as tested. This is Apple Development signed, not Developer ID distribution signed or Apple-notarized.
+
+Validation: strict nested signatures and Apple chain, owner certificate fingerprint, public identity policy, archive paths/hash, real signed-app copy and tamper rejection, and temporary-directory 1.6.0 → 1.6.1 installation/recovery checks. Previously documented native vault-migration/retry limitations remain; no new runtime behavior is introduced.
+
 # Faceprint 1.6.0
 
 - Remove Resume autofill and its separate user-presence authentication. New v2 vaults use device-only Secure Enclave encryption with a key available while macOS is unlocked; no background LocalAuthentication prompt is permitted. On sleep/screen lock/user switch, stop operations and clear cached keys, then reopen automatically when available. Retain the autofill enabled preference even while Accessibility is unavailable; transient key-access failures retry without a manual Resume action.

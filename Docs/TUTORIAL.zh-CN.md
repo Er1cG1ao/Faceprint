@@ -6,7 +6,7 @@
 
 ## 首次设置
 
-从 [Releases](https://github.com/Er1cG1ao/faceprint/releases) 下载 ZIP，退出旧版，解压并将 Faceprint 放入 Applications。软件需要 Apple Silicon 和 macOS 15+，使用临时签名，尚未经过 Apple 公证。
+从 [Releases](https://github.com/Er1cG1ao/faceprint/releases) 下载 ZIP，退出旧版，解压并将 Faceprint 放入 Applications。软件需要 Apple Silicon 和 macOS 15+，从 1.6.1 起使用固定 Apple Development 签名，尚未经过 Apple 公证。
 
 首次启动会申请摄像头权限，并提示开启辅助功能权限。在 **General → Permissions**（灵动岛部分下面）查看权限状态：摄像头用于本地识别，辅助功能用于读取支持的系统弹窗并输入密码。如果权限被拒绝，使用对应按钮前往系统设置授权，再返回 Faceprint 刷新状态。
 
@@ -145,7 +145,7 @@ Your Face 使用身份卡片，可通过 + 添加名称和新脸，启用／停�
 
 About 的 Check for Updates 从 GitHub 查询最新正式 Release；自动检查每天启动时最多一次，不会自动安装。检测到更高版本且有匹配的 arm64 ZIP 与 GitHub SHA-256 后，可以点击 Install and Restart。软件校验下载、压缩包路径、版本／系统／架构和签名，退出后由独立安装器在原 Applications 路径原子替换，保留旧应用恢复副本，不移动人脸、密码或偏好数据。仅支持用户可写的 /Applications 或 ~/Applications；重新启动仍需按正常流程解锁受保护数据。
 
-目前测试包仍是 ad hoc 签名，机器上没有可用的固定签名证书。自动更新不能单独解决权限继承；ad hoc 的代码身份随版本变化，Camera／Accessibility 仍可能需要重新允许。打包已支持固定 Apple 签名身份，签名版会拒绝身份不兼容的更新。首次从 ad hoc 迁移到固定签名时也可能需要重新授权一次。更新器不会修改 TCC 权限库或放宽签名身份检查。
+1.6.1 已改用固定 Apple Development 签名。首次从旧 ad hoc 版本迁移，可能还需授权一次摄像头／辅助功能；后续版本必须保持兼容的签名身份。更新器会拒绝身份不兼容的签名版更新，不会修改 TCC 权限库或保证系统权限一定继承。本版本尚未经过 Apple 公证。
 
 
 1.5.1 设置页移除重复的 session／识别状态尾注，并加入 Glance 相同的顶部渐进虚化。诊断复制移到菜单栏菜单中的 Copy diagnostics，菜单栏图标悬停仍显示当前状态。About 保留更新状态与许可链接，密码保存失败仍在对应卡片提示。
@@ -167,3 +167,8 @@ About 的 Check for Updates 从 GitHub 查询最新正式 Release；自动检查
 Cmd-W 关闭设置并锁定编辑，自动填写保持开启。灵动岛不再显示 Filling 文字。失败后收起的灵动岛保留悬停重试入口，直到原请求消失；自动重试至多一次，每次都重新扫描人脸并验证当前窗口。窗口换了 AX 输入框或进入密码阶段时可以重新匹配，已有内容或无法验证为空的密码框禁止重试填写。
 
 本地测试环境没有可用的 Secure Enclave，实际旧保险库迁移、唤醒恢复和原生重试体验仍需安装验证；本节描述覆盖上方旧版本的 Resume 与人工恢复说明。
+
+
+## 1.6.1：固定 Apple Development 签名
+
+这是首个使用你在 MacBook 创建的 Apple Development 证书签名的公开版本。应用与安装器使用相同身份；功能与 1.6.0 一致。首次从旧临时签名切换，可能仍需再允许一次摄像头／辅助功能；后续更新需保持兼容的签名身份。实际系统权限继承仍需安装更新验证，开发签名也不等于 Apple 公证。私钥没有传到聊天、Mac mini 或 GitHub。
