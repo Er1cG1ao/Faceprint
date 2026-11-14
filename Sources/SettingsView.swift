@@ -5,7 +5,7 @@ import SwiftUI
 import AVFoundation
 
 private enum SettingsPage: String, CaseIterable, Identifiable {
-    case general, face, password, camera, recognition, about
+    case general, face, password, camera, about
     var id: Self { self }
     var title: String {
         switch self {
@@ -13,7 +13,6 @@ private enum SettingsPage: String, CaseIterable, Identifiable {
         case .face: return "Your Face"
         case .password: return "Password"
         case .camera: return "Camera"
-        case .recognition: return "Recognition"
         case .about: return "About"
         }
     }
@@ -23,7 +22,6 @@ private enum SettingsPage: String, CaseIterable, Identifiable {
         case .face: return "faceid"
         case .password: return "key.horizontal"
         case .camera: return "camera"
-        case .recognition: return "viewfinder"
         case .about: return "info.circle"
         }
     }
@@ -33,7 +31,6 @@ private enum SettingsPage: String, CaseIterable, Identifiable {
         case .face: return "Nine views. One familiar face."
         case .password: return "Your Mac password, encrypted locally."
         case .camera: return "Choose the camera used for recognition."
-        case .recognition: return "Control recognition and confirmation."
         case .about: return "A familiar face for macOS password prompts."
         }
     }
@@ -123,7 +120,7 @@ struct SetupView: View {
                     .frame(width: 30, height: 30)
             }
             .buttonStyle(.plain).background(cardFill, in: Circle())
-            .disabled(controller.busy && !controller.settingsUnlocked)
+            .disabled(!controller.settingsUnlocked && !controller.canUnlockSettings)
             .help(controller.settingsUnlocked ? "Lock settings" : "Unlock to edit settings")
             .accessibilityLabel(controller.settingsUnlocked ? "Lock settings" : "Unlock to edit settings")
         }
@@ -168,7 +165,6 @@ struct SetupView: View {
         case .face: facePage
         case .password: passwordPage
         case .camera: cameraPage
-        case .recognition: recognitionPage
         case .about: aboutPage
         }
     }
@@ -176,24 +172,23 @@ struct SetupView: View {
     private var generalPage: some View {
         VStack(alignment: .leading, spacing: 14) {
             group {
-                Toggle("Enable face-assisted filling", isOn: Binding(get: { controller.enabled }, set: controller.setEnabled))
-                    .toggleStyle(.switch).controlSize(.small)
-                    .disabled(!controller.canModifySettings || (!controller.enabled && !controller.canEnable))
-                    .padding(14)
-            }
-            if !controller.canEnable && !controller.enabled {
-                caption("Unlock settings, enroll your face, and save your Mac password to enable filling.")
-            }
-            group {
-                row("Settings", detail: controller.settingsUnlocked ? "Changes are allowed until you lock settings." : "Locked for editing. Enabled autofill keeps working.") {
+                row("Settings", detail: controller.settingsUnlocked
+                    ? "Unlocked. You can change settings while autofill stays enabled."
+                    : "Unlock to make changes. Enabled autofill keeps working while settings are locked.") {
                     Button(controller.settingsUnlocked ? "Lock" : "Unlock to edit") {
                         if controller.settingsUnlocked { controller.lockSettings() } else { controller.unlockSettings() }
                     }.buttonStyle(.bordered).controlSize(.small)
-                        .disabled(controller.busy && !controller.settingsUnlocked)
+                        .disabled(!controller.settingsUnlocked && !controller.canUnlockSettings)
                 }
             }
-            if controller.enabled && !controller.dataSessionReady {
-                group {
+            group {
+                toggleRow("Enable face-assisted filling", detail: controller.canEnable || controller.enabled
+                    ? "Recognize your face and fill supported Mac password prompts. Runs while settings are locked."
+                    : "Enroll your face and save your Mac login password before enabling filling.",
+                    isOn: Binding(get: { controller.enabled }, set: controller.setEnabled),
+                    disabled: !controller.canModifySettings || (!controller.enabled && !controller.canEnable))
+                if controller.enabled && !controller.dataSessionReady {
+                    rowDivider
                     row("Autofill paused", detail: "Authenticate to open protected data after launch or sleep. Settings stay locked.") {
                         Button("Resume", action: controller.resumeAutofill)
                             .buttonStyle(.bordered).controlSize(.small).disabled(controller.busy)
@@ -201,25 +196,75 @@ struct SetupView: View {
                 }
             }
             group {
-                Toggle("Launch at login", isOn: Binding(get: { systemSetup.launchAtLogin }, set: { systemSetup.setLaunchAtLogin($0) }))
-                    .toggleStyle(.switch).controlSize(.small).padding(14).disabled(!controller.canModifySettings)
+                toggleRow("Launch at login", detail: systemSetup.loginStatus,
+                    isOn: Binding(get: { systemSetup.launchAtLogin }, set: { systemSetup.setLaunchAtLogin($0) }))
+                if systemSetup.loginNeedsApproval {
+                    rowDivider
+                    row("Login approval", detail: "Allow Faceprint in macOS Login Items.") {
+                        Button("Open Login Items", action: systemSetup.openLoginSettings)
+                            .buttonStyle(.bordered).controlSize(.small).disabled(!canEdit)
+                    }
+                }
             }
-            caption(systemSetup.loginStatus)
-            if systemSetup.loginNeedsApproval {
-                Button("Open Login Items", action: systemSetup.openLoginSettings).buttonStyle(.bordered).disabled(!controller.canModifySettings)
-            }
+            sectionTitle("RECOGNITION")
+            recognitionOptions
             sectionTitle("DYNAMIC ISLAND")
             group {
-                row("Animation", detail: "Recognition and result feedback.") {
+                row("Animation", detail: "Recognition and filling feedback. A new style applies to the next scan.") {
                     Picker("Animation", selection: Binding(get: { controller.islandStyle }, set: controller.setIslandStyle)) {
                         Text("Original").tag(UnlockAnimationStyle.original)
                         Text("Minimal").tag(UnlockAnimationStyle.minimal)
                     }.labelsHidden().frame(width: 126).disabled(!canEdit)
                 }
             }
-            caption(controller.automaticPasswordFallback
-                ? "Supported Touch ID prompts start recognition automatically. After a match, Faceprint selects Use Password and fills."
-                : "Open Use Password… yourself. Faceprint can recognize a supported visible empty password field and focus it after a face match.")
+            sectionTitle("PERMISSIONS")
+            permissionsGroup
+            sectionTitle("SETTINGS & DATA PROTECTION")
+            group {
+                row("Automatic protection", detail: "Editing locks after 5 minutes. Protected data locks on sleep, screen lock, user switch, or 30 minutes without secret use.") {
+                    Image(systemName: "lock.shield").foregroundStyle(.secondary)
+                }
+                rowDivider
+                row("Local recognition", detail: "Glance’s ArcFace model compares your face on this Mac. Webcam matching does not provide Face ID’s replay protection.") {
+                    Image(systemName: "faceid").foregroundStyle(.secondary)
+                }
+            }
+        }
+    }
+
+    private var recognitionOptions: some View {
+        group {
+            toggleRow("Passive photo checks", detail: "Glance Light checks for obvious screen glare and device borders. No blink or head turn required. Applies to the next scan; photos or replayed video can still be accepted.",
+                isOn: Binding(get: { controller.passivePhotoChecks }, set: controller.setPhotoChecks))
+            rowDivider
+            toggleRow("Scan Touch ID prompts", detail: "Start recognition at supported Touch ID cards, then select Use Password and fill after a face match. Applies to the next request; off by default.",
+                isOn: Binding(get: { controller.automaticPasswordFallback }, set: controller.setAutomaticPasswordFallback))
+            rowDivider
+            toggleRow("Press Return after filling", detail: "Submit after a verified password fill. This can approve system changes. Off by default; enabling applies to the next attempt.",
+                isOn: Binding(get: { controller.autoSubmit }, set: controller.setAutoSubmit))
+        }
+    }
+
+    private var permissionsGroup: some View {
+        group {
+            row("Camera", detail: "\(systemSetup.cameraStatus). Used for local face enrollment and recognition.") {
+                if systemSetup.cameraGranted { granted }
+                else {
+                    Button("Allow") { Task { await systemSetup.requestCamera() } }
+                        .buttonStyle(.bordered).controlSize(.small)
+                        .disabled(systemSetup.requestingPermissions || !canEdit)
+                }
+            }
+            rowDivider
+            row("Accessibility", detail: systemSetup.accessibilityGranted
+                ? "Allowed for detecting native password prompts and filling them. Status refreshes when you return from System Settings."
+                : "Allow Faceprint to detect supported prompts and fill their password fields.") {
+                if systemSetup.accessibilityGranted { granted }
+                else {
+                    Button("Allow") { systemSetup.requestAccessibility() }
+                        .buttonStyle(.bordered).controlSize(.small).disabled(!canEdit)
+                }
+            }
         }
     }
 
@@ -239,10 +284,10 @@ struct SetupView: View {
                     Text("Follow the nine-direction capture ring. The camera preview appears only during enrollment.")
                         .font(.system(size: 12)).foregroundStyle(.secondary).multilineTextAlignment(.center)
                     Button(controller.hasFace ? "Enroll face again" : "Enroll my face", action: controller.enroll)
-                        .buttonStyle(.borderedProminent).clipShape(Capsule()).disabled(!canEdit)
+                        .buttonStyle(.borderedProminent).clipShape(Capsule()).disabled(!controller.canEnrollFace)
                 }.frame(maxWidth: .infinity).padding(26)
             }
-            if controller.enabled { caption("Turn off filling in General before enrolling again.") }
+            caption("Enrollment temporarily pauses recognition. Your autofill switch stays unchanged and filling resumes when enrollment finishes or is cancelled.")
         }
     }
 
@@ -273,10 +318,9 @@ struct SetupView: View {
                 }.padding(14)
             }
             caption("Use the password for your current Mac account. Saved data is encrypted locally. Locking settings keeps enabled autofill running.")
-            if controller.enabled { caption("Turn off filling in General before changing the saved password.") }
             sectionTitle("SAVED DATA")
             group {
-                row("Remove saved data", detail: "Remove both the saved face and password.") {
+                row("Remove saved data", detail: "Remove the saved face and password, and stop autofill.") {
                     Button("Remove…", action: controller.removeSavedData)
                         .buttonStyle(.bordered).controlSize(.small).disabled(!canEdit)
                 }
@@ -287,62 +331,17 @@ struct SetupView: View {
     private var cameraPage: some View {
         VStack(alignment: .leading, spacing: 14) {
             group {
-                VStack(alignment: .leading, spacing: 10) {
-                    Text("Recognition camera").font(.system(size: 13, weight: .medium))
+                row("Recognition camera", detail: "Used for enrollment and recognition. Changes apply to the next scan.") {
                     Picker("Camera", selection: Binding(get: { controller.cameraID }, set: controller.setCameraID)) {
                         Text("System default").tag("")
                         ForEach(devices, id: \.uniqueID) { device in Text(device.localizedName).tag(device.uniqueID) }
                         if !controller.cameraID.isEmpty && !devices.contains(where: { $0.uniqueID == controller.cameraID }) {
                             Text("Selected camera (unavailable)").tag(controller.cameraID)
                         }
-                    }.labelsHidden().disabled(!canEdit)
-                }.padding(14)
-            }
-            caption("The camera runs during enrollment and password recognition. Settings does not display or start a camera preview.")
-            sectionTitle("PERMISSIONS")
-            group {
-                row("Camera", detail: systemSetup.cameraStatus) {
-                    if systemSetup.cameraGranted { granted }
-                    else {
-                        Button("Allow") { Task { await systemSetup.requestCamera() } }
-                            .buttonStyle(.bordered).controlSize(.small).disabled(systemSetup.requestingPermissions || !controller.canModifySettings)
-                    }
-                }
-                Divider().padding(.horizontal, 14)
-                row("Accessibility", detail: systemSetup.accessibilityGranted ? "Allowed for supported password prompts." : "Needed to detect prompts and fill passwords.") {
-                    if systemSetup.accessibilityGranted { granted }
-                    else { Button("Allow") { systemSetup.requestAccessibility() }.buttonStyle(.bordered).controlSize(.small).disabled(!controller.canModifySettings) }
+                    }.labelsHidden().frame(width: 180).disabled(!canEdit)
                 }
             }
-            caption("Permission changes take effect after you return from System Settings. Use the refresh button above to reload connected cameras.")
-        }
-    }
-
-    private var recognitionPage: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            group {
-                Toggle("Passive photo checks", isOn: Binding(get: { controller.passivePhotoChecks }, set: controller.setPhotoChecks))
-                    .toggleStyle(.switch).controlSize(.small).padding(14).disabled(!canEdit)
-            }
-            caption("Glance Light checks for obvious screen glare or device borders. No required blink or head turn. Photos or replayed video can still be accepted.")
-            group {
-                Toggle("Scan Touch ID prompts", isOn: Binding(get: { controller.automaticPasswordFallback }, set: controller.setAutomaticPasswordFallback))
-                    .toggleStyle(.switch).controlSize(.small).padding(14).disabled(!canEdit)
-            }
-            caption("Off by default. For supported Touch ID prompts, recognize your face first, then select Use Password and fill. Automatic Return below controls the final confirmation.")
-            group {
-                Toggle("Press Return after filling", isOn: Binding(get: { controller.autoSubmit }, set: controller.setAutoSubmit))
-                    .toggleStyle(.switch).controlSize(.small).padding(14).disabled(!canEdit)
-            }
-            caption("Off by default. When enabled, a verified password fill is followed by Return, which can approve a system settings change.")
-            sectionTitle("SETTINGS & DATA PROTECTION")
-            group {
-                row("Automatic protection", detail: "Settings lock after 5 minutes. Protected data locks on sleep, screen lock, user switch, or 30 minutes without secret use.") {
-                    Image(systemName: "lock.shield").foregroundStyle(.secondary)
-                }
-            }
-            caption("Recognition uses Glance’s ArcFace model with your saved face template. Ordinary webcam matching does not offer Face ID’s replay protection.")
-            if controller.enabled { caption("Turn off filling in General to change these options.") }
+            caption("The camera runs during enrollment and recognition. Camera and Accessibility permissions are in General, below Dynamic Island.")
         }
     }
 
@@ -380,7 +379,7 @@ struct SetupView: View {
             Text("Settings locked").font(.system(size: 16, weight: .medium))
             Text(detail).font(.system(size: 12)).foregroundStyle(.secondary)
             Button("Unlock to edit", action: controller.unlockSettings)
-                .buttonStyle(.borderedProminent).clipShape(Capsule()).disabled(controller.busy)
+                .buttonStyle(.borderedProminent).clipShape(Capsule()).disabled(!controller.canUnlockSettings)
             Text("Enabled autofill keeps working while settings are locked.")
                 .font(.system(size: 11)).foregroundStyle(.secondary)
         }.multilineTextAlignment(.center).frame(maxWidth: .infinity, minHeight: 280)
@@ -400,8 +399,18 @@ struct SetupView: View {
                 Text(detail).font(.system(size: 11)).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
             }
             Spacer(minLength: 0)
-            control()
+            control().fixedSize(horizontal: true, vertical: false)
         }.padding(14)
+    }
+
+    private var rowDivider: some View { Divider().padding(.horizontal, 14) }
+
+    private func toggleRow(_ title: String, detail: String, isOn: Binding<Bool>, disabled: Bool? = nil) -> some View {
+        row(title, detail: detail) {
+            Toggle(title, isOn: isOn)
+                .labelsHidden().toggleStyle(.switch).controlSize(.regular)
+                .accessibilityLabel(title).disabled(disabled ?? !canEdit)
+        }
     }
 
     private func caption(_ text: String) -> some View {

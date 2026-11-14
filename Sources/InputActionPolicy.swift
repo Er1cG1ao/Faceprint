@@ -19,17 +19,19 @@ struct SettingsAccessState {
 }
 
 enum InputActionPolicy {
-    static func canEnable(dataSessionReady: Bool, hasFace: Bool, hasPassword: Bool, busy: Bool) -> Bool {
-        dataSessionReady && hasFace && hasPassword && !busy
+    static func canEnable(dataSessionReady: Bool, hasFace: Bool, hasPassword: Bool) -> Bool {
+        dataSessionReady && hasFace && hasPassword
     }
-    static func canChangeSettings(settingsUnlocked: Bool, busy: Bool) -> Bool {
-        settingsUnlocked && !busy
+    static func canChangeSettings(settingsUnlocked: Bool, authenticating: Bool) -> Bool {
+        settingsUnlocked && !authenticating
     }
     static func secureFieldLength(characterCount: Int?, value: String?) -> Int? {
         let counts = [characterCount, value?.utf16.count].compactMap { $0 }.filter { $0 >= 0 }
         return counts.max()
     }
-    static func shouldPressReturn(enabled: Bool, verified: Bool) -> Bool { enabled && verified }
+    static func shouldPressReturn(enabledAtStart: Bool, enabledNow: Bool, verified: Bool) -> Bool {
+        enabledAtStart && enabledNow && verified
+    }
 }
 
 /// Password-card animations can expose a field before keyboard input is ready.

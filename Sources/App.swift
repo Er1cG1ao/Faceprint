@@ -29,8 +29,8 @@ final class FillController: ObservableObject {
     }
     @Published private(set) var enabled = UserDefaults.standard.bool(forKey: "fillingEnabled") {
         didSet {
-            if !enabled { cancelOperation() }
-            else { status = "Waiting for an empty supported system password field." }
+            if !enabled && !isEnrolling && !authenticationInProgress { cancelOperation() }
+            else if enabled && !isEnrolling { status = "Waiting for an empty supported system password field." }
         }
     }
     var onAuthenticationFinished: (() -> Void)?
@@ -56,13 +56,17 @@ final class FillController: ObservableObject {
     private var authenticationInProgress = false
     private var runtimeAuthenticationDeferred = false
     private var isEnrolling = false
+    private var isEditingSavedData = false
     private var settingsLastActivity = Date()
     var settingsUnlocked: Bool { settingsAccess.isUnlocked }
-    var canModifySettings: Bool { InputActionPolicy.canChangeSettings(settingsUnlocked: settingsUnlocked, busy: busy) }
-    var canEditOptions: Bool { canModifySettings && !enabled }
+    var canModifySettings: Bool { InputActionPolicy.canChangeSettings(settingsUnlocked: settingsUnlocked, authenticating: authenticationInProgress) }
+    var canEditOptions: Bool { canModifySettings }
+    var canUnlockSettings: Bool { !settingsUnlocked && !authenticationInProgress && !screenLocked && !sleeping && userSessionActive }
+    var canEnrollFace: Bool { canEditOptions && dataSessionReady && !isEnrolling }
+    var isEnrollingFace: Bool { isEnrolling }
 
 
-    var canEnable: Bool { InputActionPolicy.canEnable(dataSessionReady: dataSessionReady, hasFace: hasFace, hasPassword: hasPassword, busy: busy) }
+    var canEnable: Bool { InputActionPolicy.canEnable(dataSessionReady: dataSessionReady, hasFace: hasFace, hasPassword: hasPassword) }
 
     init() {
         let previous = UserDefaults.standard.persistentDomain(forName: "local.giao.glancefill")
@@ -109,7 +113,12 @@ final class FillController: ObservableObject {
     }
 
     func unlockSettings() {
-        guard !busy, !authenticationInProgress, !settingsUnlocked, !screenLocked, !sleeping, userSessionActive else { return }
+        guard canUnlockSettings else { return }
+        // Editing authentication can interrupt an automatic scan; the user's
+        // enabled preference remains intact and resumes after authentication.
+        cancelOperation()
+        attemptedField = nil
+        attemptGate.reset()
         let ticket = settingsAccess.beginAuthorization()
         let currentGeneration = generation
         authenticationInProgress = true
@@ -235,10 +244,12 @@ final class FillController: ObservableObject {
     }
 
     func savePassword(_ password: String) throws {
-        guard canEditOptions, dataSessionReady else { throw FillError.message("Unlock settings and turn off filling before changing your password.") }
+        guard canEditOptions, dataSessionReady else { throw FillError.message("Unlock settings before changing your password.") }
+        guard !password.isEmpty else { throw FillError.message("Enter your Mac login password first.") }
         guard !password.contains(where: { $0.isNewline || $0 == "\t" }) else {
             throw FillError.message("The password contains an unsupported control character.")
         }
+        prepareProtectedDataEdit()
         var data = Data(password.utf8)
         defer { data.resetBytes(in: 0..<data.count) }
         try SecureCredentialManager.savePassword(data)
@@ -266,6 +277,16 @@ final class FillController: ObservableObject {
         isEnrolling = false
     }
 
+    /// Interrupt an automatic fill before editing protected data, without
+    /// requiring the user to turn filling off. Password updates can coexist
+    /// with enrollment; vault writes are serialized by SecureCredentialManager.
+    private func prepareProtectedDataEdit(cancelEnrollment: Bool = false) {
+        guard !isEnrolling || cancelEnrollment else { return }
+        cancelOperation()
+        attemptedField = nil
+        attemptGate.reset()
+    }
+
     private func getRecognizer() async throws -> Recognizer {
         if let recognizer { return recognizer }
         let loading = recognizerLoad ?? Task.detached(priority: .userInitiated) { try Recognizer() }
@@ -276,7 +297,8 @@ final class FillController: ObservableObject {
     }
 
     func enroll() {
-        guard canEditOptions, dataSessionReady else { return }
+        guard canEnrollFace else { return }
+        prepareProtectedDataEdit()
         isEnrolling = true
         busy = true
         generation &+= 1
@@ -316,7 +338,7 @@ final class FillController: ObservableObject {
            Date().timeIntervalSince(activity) >= 30 * 60 {
             endRuntimeSession()
         }
-        guard enabled, !busy, !screenLocked, !sleeping, userSessionActive else { return }
+        guard enabled, !busy, !isEditingSavedData, !screenLocked, !sleeping, userSessionActive else { return }
         guard !probing else { return }
         guard AXIsProcessTrusted() else {
             status = "Grant Faceprint Accessibility access, then enable filling again."
@@ -334,7 +356,7 @@ final class FillController: ObservableObject {
                 return (verified ? target : nil, diagnostic)
             }.value
             probing = false
-            guard token == generation, enabled, !busy, !screenLocked, !sleeping, userSessionActive else { return }
+            guard token == generation, enabled, !busy, !isEditingSavedData, !screenLocked, !sleeping, userSessionActive else { return }
             guard let trigger = result.0 else {
                 _ = attemptGate.observe(nil, now: Date.timeIntervalSinceReferenceDate)
                 if let diagnostic = result.1 { promptStatus = diagnostic }
@@ -457,7 +479,7 @@ final class FillController: ObservableObject {
                         // Filling success is already known: let the UI render
                         // immediately while the optional Return is dispatched.
                         NotchOverlayController.shared.finish(success: true)
-                        if InputActionPolicy.shouldPressReturn(enabled: useAutomaticReturn, verified: verified) {
+                        if InputActionPolicy.shouldPressReturn(enabledAtStart: useAutomaticReturn, enabledNow: autoSubmit, verified: verified) {
                             try await performPromptWork { try target.pressReturn() }
                             record("Return sent")
                             status = "Password filled and Return pressed."
@@ -492,6 +514,9 @@ final class FillController: ObservableObject {
 
     func removeSavedData() {
         guard canEditOptions else { return }
+        isEditingSavedData = true
+        defer { isEditingSavedData = false }
+        prepareProtectedDataEdit(cancelEnrollment: true)
         let alert = NSAlert()
         alert.messageText = "Remove Faceprint's saved face and password?"
         alert.informativeText = "You can enroll and set up a new session afterward."
@@ -558,7 +583,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             // prompt closes. Restore the visible settings window after that handoff.
             Task { @MainActor [weak self] in
                 try? await Task.sleep(for: .milliseconds(200))
-                guard let self, self.window.isVisible, !self.controller.busy else { return }
+                guard let self, self.window.isVisible, !self.controller.isEnrollingFace else { return }
                 self.showWindow()
             }
         }

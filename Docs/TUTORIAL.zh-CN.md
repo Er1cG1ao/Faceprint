@@ -2,18 +2,20 @@
 
 [项目主页](../README.zh-CN.md) · [English](TUTORIAL.md) · **简体中文**
 
+本文描述 1.3.0 测试版。已发布 1.2.1 的布局见 [1.2.1 教程](https://github.com/Er1cG1ao/Faceprint/blob/v1.2.1/Docs/TUTORIAL.zh-CN.md)。
+
 ## 首次设置
 
 从 [Releases](https://github.com/Er1cG1ao/faceprint/releases) 下载 ZIP，退出旧版，解压并将 Faceprint 放入 Applications。软件需要 Apple Silicon 和 macOS 15+，使用临时签名，尚未经过 Apple 公证。
 
-首次启动会申请摄像头权限，并提示开启辅助功能权限。在 **Camera** 页查看权限状态：摄像头用于本地识别，辅助功能用于读取支持的系统弹窗并输入密码。如果权限被拒绝，使用对应按钮前往系统设置授权，再返回 Faceprint 刷新状态。
+首次启动会申请摄像头权限，并提示开启辅助功能权限。在 **General → Permissions**（灵动岛部分下面）查看权限状态：摄像头用于本地识别，辅助功能用于读取支持的系统弹窗并输入密码。如果权限被拒绝，使用对应按钮前往系统设置授权，再返回 Faceprint 刷新状态。
 
 点击 **Unlock to edit** 并完成 macOS 身份验证。在 **Camera** 选择摄像头，在 **Your Face** 点击 **Enroll my face**，按照圆环完成九方向录入，轻缓转头并保持每个方向；每个方向采集两个样本。之后在 **Password** 保存 Mac 登录密码。摄像头预览仅在录脸时显示。
 
 ## 第一次填写密码
 
 1. 完成设置：解锁设置、录入人脸，并保存 Mac 登录密码。
-2. 在 **Recognition** 保持 **Press Return after filling** 关闭。
+2. 在 **General** 保持 **Press Return after filling** 关闭。
 3. 在 **General** 开启 **Enable face-assisted filling**。
 4. 打开支持的系统密码弹窗，必要时先点 **Use Password…**，让空密码框获得焦点。
 5. 看向摄像头。填入后检查请求与密码框，再自行确认或取消。
@@ -36,7 +38,7 @@
 
 ## 识别与确认选项
 
-请先解锁设置并关闭填写，再调整以下选项：
+在 **General** 中解锁设置即可调整以下选项，不需要关闭自动填充。识别、摄像头和外观选项会在下一次识别生效。
 
 | 设置 | 行为 |
 | --- | --- |
@@ -51,7 +53,7 @@
 
 ## 从指纹框开始的自动流程
 
-解锁设置，先在 General 关闭填写，再到 Recognition 开启 **Scan Touch ID prompts**。如果需要最后自动提交，再开启 **Press Return after filling**，然后重新启用填写并锁定设置。
+解锁设置，在 **General → Recognition** 开启 **Scan Touch ID prompts**。如果需要最后自动提交，再开启 **Press Return after filling**，随后保持或启用填写，并锁定设置。
 
 | 指纹提示扫描 | 自动回车 | 行为 |
 | --- | --- | --- |
@@ -79,7 +81,7 @@
 
 | 现象 | 检查方法 |
 | --- | --- |
-| 录脸时摄像头没有画面 | 在 Camera 页检查摄像头权限与所选设备；设置页本身没有实时预览。 |
+| 录脸时摄像头没有画面 | 在 General → Permissions 检查摄像头权限，在 Camera 选择设备；设置页本身没有实时预览。 |
 | 录入中断 | 保持稳定光线和适当距离，轻缓转头。超时后重新开始。如遇崩溃，请提供版本与步骤。 |
 | 没有触发识别 | 检查填写已启用、人脸和密码已保存、辅助功能已允许，并让支持的空密码框获得焦点；如加密数据需要验证，使用 Resume autofill。 |
 | Dia 有效，其他弹窗无效 | 确认是否属于支持范围、是否使用英文文字；反馈时注明弹窗类型并移除私人信息。 |
@@ -117,3 +119,10 @@
 
 
 1.2.1 对 System Settings → PrivacySecurity.extension 的固定系统代理关系单独处理：必须已经成功选择 Use Password、仍为 Privacy 请求、Apple 签名有效，且扩展内的空安全输入框已经获得焦点，前台也仍符合原请求。此路径不再要求两个 XPC 进程提供相同的窗口对象或位置元数据。
+
+
+## 1.3.0 设置布局与编辑
+
+General 顶部依次为设置解锁、自动填写、开机启动；原 Recognition 标签页已合并到 General。权限位于 Dynamic Island 下面，Camera 页只保留设备选择与刷新。每项功能的说明位于对应设置行内，开关统一在右侧。
+
+解锁后，无论自动填写开关是否开启，都可以改选项、重新录脸或更新密码。录脸会暂时接管摄像头，结束或取消后恢复自动填写，总开关保持原状态。更新密码会先中断当前自动填写；确认删除人脸与密码后才会关闭填写。开启自动回车对下一轮生效；在当前填写完成提交前关闭它，可以阻止尚未发送的自动回车。

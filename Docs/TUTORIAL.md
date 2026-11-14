@@ -2,20 +2,20 @@
 
 [Home](../README.md) · **English** · [简体中文](TUTORIAL.zh-CN.md)
 
-This guide describes Faceprint 1.2.1.
+This guide describes the 1.3.0 test build. For the published 1.2.1 layout, see the [1.2.1 guide](https://github.com/Er1cG1ao/Faceprint/blob/v1.2.1/Docs/TUTORIAL.md).
 
 ## Set up
 
 Download the app ZIP from [Releases](https://github.com/Er1cG1ao/faceprint/releases), quit any older instance, extract it, and move Faceprint into Applications. The app requires Apple Silicon and macOS 15+. It is ad hoc signed and not Apple-notarized.
 
-On first launch, Faceprint requests Camera access and prompts for Accessibility access. On the **Camera** page, check both statuses. Camera is used for local recognition; Accessibility is used to inspect supported system dialogs and type into their password fields. If access is blocked, use the permission buttons and allow Faceprint in System Settings. Return to Faceprint to refresh the status.
+On first launch, Faceprint requests Camera access and prompts for Accessibility access. On **General**, check both statuses under **Permissions**, below **Dynamic Island**. Camera is used for local recognition; Accessibility is used to inspect supported system dialogs and type into their password fields. If access is blocked, use the permission buttons and allow Faceprint in System Settings. Return to Faceprint to refresh the status.
 
 Click **Unlock to edit** and complete the macOS authentication request. Select your device on **Camera**. On **Your Face**, click **Enroll my face** and follow the nine-direction ring. Move gently and hold each position. The guide captures two samples per direction. Save your Mac login password on **Password** after enrollment. The camera preview appears only during enrollment.
 
 ## First password fill
 
 1. Complete setup: unlock settings, enroll your face, and save your Mac login password.
-2. In **Recognition**, leave **Press Return after filling** off for the first use.
+2. In **General**, leave **Press Return after filling** off for the first use.
 3. In **General**, turn on **Enable face-assisted filling**.
 4. Open a supported system password dialog. Select **Use Password…** if necessary, then focus the empty password field.
 5. Look at the camera. Once the password is filled, review the dialog and confirm or cancel it yourself.
@@ -28,7 +28,7 @@ By default, open each prompt's password-entry step yourself. With Scan Touch ID 
 
 Settings start locked. Click **Unlock to edit** (or the lock icon) and complete macOS authentication before changing any option, enrolling a face, updating the password, deleting saved data, or changing launch at login. Each settings unlock requests authentication, even while autofill is already running.
 
-After setup, enable filling and click **Lock settings**. Enabled autofill keeps running while all editable controls remain locked. Closing Settings also locks editing; the menu bar app continues to run. Settings automatically lock after 5 minutes without a settings change. Locking settings cancels an unfinished enrollment, but does not cancel a recognition/fill already in progress.
+After setup, enable filling and click **Lock settings**. Enabled autofill keeps running while all editable controls remain locked. Closing Settings also locks editing; the menu bar app continues to run. Settings automatically lock after 5 minutes without a settings change. Unlocking is sufficient for editing: you do not need to turn autofill off. Enrollment temporarily takes over the camera, then automatic filling resumes with its preference unchanged. Updating the password interrupts an active automatic fill; deleting saved data stops filling after confirmation. Locking settings cancels an unfinished enrollment, but does not cancel a recognition/fill already in progress.
 
 The encrypted data session is separate. Its key still requires macOS user-presence authentication after app launch, screen lock, sleep, user-session switch, or 30 minutes without secret use. Faceprint remembers the filling switch and can authenticate to resume enabled autofill at launch. After a data lock, the next supported prompt can request authentication; **Resume autofill** in the menu or General page retries it. Cancelling authentication pauses automatic retries until you explicitly retry. Resuming autofill leaves settings locked.
 
@@ -38,7 +38,7 @@ On **General**, unlock settings and turn on **Launch at login** to register macO
 
 ## Recognition and confirmation settings
 
-Unlock settings and disable filling before changing these options:
+Unlock settings to change these options in **General**. Autofill can remain enabled. Ordinary recognition/camera/style options apply to the next attempt; changing saved data or starting enrollment coordinates the active task automatically.
 
 | Setting | Behavior |
 | --- | --- |
@@ -53,7 +53,7 @@ Photo checks can reject real users and cannot reliably stop replay attacks. Ordi
 
 ## Face-first Touch ID flow
 
-Unlock settings, turn filling off in General, and enable **Scan Touch ID prompts** in Recognition. Enable **Press Return after filling** as well if you want final submission, then turn filling back on and lock Settings.
+Unlock settings and enable **Scan Touch ID prompts** under **General → Recognition**. Enable **Press Return after filling** as well if you want final submission, then enable filling if it is off and lock Settings.
 
 | Touch ID scanning | Automatic Return | Result |
 | --- | --- | --- |
@@ -85,7 +85,7 @@ If a workflow stalls, click **Copy diagnostics** below the Settings status after
 
 | Symptom | What to check |
 | --- | --- |
-| No image during enrollment | Check Camera permission and the selected device on Camera. Settings has no live preview. |
+| No image during enrollment | Check permission under General → Permissions and the selected device on Camera. Settings has no live preview. |
 | Enrollment stops | Use steady lighting, keep your face close enough, and turn gently. Restart enrollment after a timeout. Report any crash with its version and steps. |
 | Nothing triggers | Check filling is enabled, a face/password are saved, Accessibility is allowed, and the supported field is empty and focused. Use Resume autofill if protected data needs authentication. |
 | Dia works but another prompt does not | Check whether the prompt is supported and in English. Include the dialog type in a bug report with private details removed. |

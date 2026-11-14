@@ -1,3 +1,14 @@
+# Faceprint 1.3.0 — test build
+
+- Make settings edits depend on the editing unlock, independently of the autofill enabled preference and automatic recognition activity. Fresh settings authentication remains required; saved face/password prerequisites still apply to enabling filling.
+- Coordinate enrollment and saved-password edits with active filling instead of requiring users to switch autofill off. Enrollment pauses automatic recognition and resumes it afterward while retaining the switch state. Password edits cancel a current automatic attempt without interrupting enrollment. Saved-data removal pauses probing during its confirmation and stops autofill only when removal is confirmed.
+- Keep in-flight recognition/camera/style options as per-attempt snapshots. Turning automatic Return off before dispatch suppresses pending submission; turning it on does not retroactively submit an existing attempt.
+- Reorder General's first cards: Settings unlock/lock, Enable face-assisted filling, Launch at login. Move all Recognition controls and protection information into General, and remove the Recognition tab.
+- Move Camera/Accessibility permissions from Camera to General directly below Dynamic Island. Camera retains device selection and refresh.
+- Use grouped rows with explanations inside each feature row and switches aligned at the trailing edge. Keep settings/data-session auto-lock durations unchanged.
+
+Validation: editing authorization, enable prerequisites, live Return preference and existing regressions; build, signature and archive verification. Native enrollment/edit/fill interactions and final window appearance still require verification in the installed app. Existing preferences, face templates and encrypted data stay compatible.
+
 # Faceprint 1.2.1
 
 - Address the host handoff shown in the 1.2.0 diagnostic trace: com.apple.systempreferences owns the Touch ID card and com.apple.settings.PrivacySecurity.extension owns the focused password field. The generic cross-host window/geometry test rejected continuation before input.

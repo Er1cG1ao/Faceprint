@@ -22,10 +22,9 @@ enum FaceprintSelfTest {
         for unlocked in [false, true] {
             for face in [false, true] {
                 for password in [false, true] {
-                    for busy in [false, true] {
-                        let expected = unlocked && face && password && !busy
-                        precondition(InputActionPolicy.canEnable(dataSessionReady: unlocked, hasFace: face, hasPassword: password, busy: busy) == expected)
-                    }
+                    let expected = unlocked && face && password
+                    precondition(InputActionPolicy.canEnable(dataSessionReady: unlocked, hasFace: face, hasPassword: password) == expected,
+                        "Enabling depends on saved-data prerequisites; operation scheduling handles busy state")
                 }
             }
         }
@@ -64,6 +63,12 @@ enum FaceprintSelfTest {
         _ = attempts.observe(nil, now: 5.1)
         precondition(attempts.observe("request-a", now: 5.2), "A dismissed request can be used again")
         print("PASS transition focus settling, recreated-field delay, one scan across stages, retry and dismissal")
+        for unlocked in [false, true] {
+            for authenticating in [false, true] {
+                precondition(InputActionPolicy.canChangeSettings(settingsUnlocked: unlocked, authenticating: authenticating) == (unlocked && !authenticating))
+            }
+        }
+        print("PASS unlocked editing independent of autofill preference and recognition busy state; authentication stays gated")
         var access = SettingsAccessState()
         precondition(!access.isUnlocked)
         let first = access.beginAuthorization()
@@ -73,20 +78,19 @@ enum FaceprintSelfTest {
         precondition(access.completeAuthorization(second) && access.isUnlocked)
         access.lock()
         precondition(!access.isUnlocked)
-        precondition(InputActionPolicy.canEnable(dataSessionReady: true, hasFace: true, hasPassword: true, busy: false), "Settings lock must not block ready autofill")
-        for unlocked in [false, true] {
-            for busy in [false, true] {
-                precondition(InputActionPolicy.canChangeSettings(settingsUnlocked: unlocked, busy: busy) == (unlocked && !busy))
-            }
-        }
+        precondition(InputActionPolicy.canEnable(dataSessionReady: true, hasFace: true, hasPassword: true), "Settings lock must not block ready autofill")
         print("PASS default settings lock, stale authentication rejection, edit authorization, and autofill independence")
 
-        for enabled in [false, true] {
-            for verified in [false, true] {
-                precondition(InputActionPolicy.shouldPressReturn(enabled: enabled, verified: verified) == (enabled && verified))
+        for enabledAtStart in [false, true] {
+            for enabledNow in [false, true] {
+                for verified in [false, true] {
+                    precondition(InputActionPolicy.shouldPressReturn(enabledAtStart: enabledAtStart, enabledNow: enabledNow, verified: verified) == (enabledAtStart && enabledNow && verified))
+                }
             }
         }
-        print("PASS filling requires a protected data session, a face, a password, and idle state; Return requires opt-in and verified input")
+        precondition(!InputActionPolicy.shouldPressReturn(enabledAtStart: true, enabledNow: false, verified: true), "Turning Return off while filling must prevent submission")
+        precondition(!InputActionPolicy.shouldPressReturn(enabledAtStart: false, enabledNow: true, verified: true), "Turning Return on must not submit an already-running attempt")
+        print("PASS enabling requires protected data/face/password independent of execution state; Return requires opt-in and verified input")
 
         let poses: [(EnrollmentPose, Float, Float)] = [
             (.center, 0, 0), (.left, 0.3, 0), (.topLeft, 0.3, -0.22),
