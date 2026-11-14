@@ -6,6 +6,7 @@ import ServiceManagement
 @MainActor
 final class SystemSetup: ObservableObject {
     @Published private(set) var launchAtLogin = false
+    @Published private(set) var showInMenuBar = UserDefaults.standard.object(forKey: "showInMenuBar") as? Bool ?? true
     @Published private(set) var loginNeedsApproval = false
     @Published private(set) var loginStatus = ""
     @Published private(set) var cameraStatus = ""
@@ -37,6 +38,12 @@ final class SystemSetup: ObservableObject {
         case .denied, .restricted: cameraStatus = "Camera blocked — allow Faceprint in System Settings"
         @unknown default: cameraStatus = "Camera permission unavailable"
         }
+    }
+
+    func setShowInMenuBar(_ visible: Bool) {
+        guard canModifySettings() else { return }
+        showInMenuBar = visible
+        UserDefaults.standard.set(visible, forKey: "showInMenuBar")
     }
 
     func setLaunchAtLogin(_ enabled: Bool) {

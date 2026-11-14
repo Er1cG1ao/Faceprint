@@ -25,15 +25,7 @@ private enum SettingsPage: String, CaseIterable, Identifiable {
         case .about: return "info.circle"
         }
     }
-    var subtitle: String {
-        switch self {
-        case .general: return "Face-assisted filling, on your terms."
-        case .face: return "Nine views. One familiar face."
-        case .password: return "Your Mac password, encrypted locally."
-        case .camera: return "Choose the camera used for recognition."
-        case .about: return "A familiar face for macOS password prompts."
-        }
-    }
+
 }
 
 private struct SettingsMaterial: NSViewRepresentable {
@@ -50,63 +42,69 @@ private struct SettingsMaterial: NSViewRepresentable {
 struct SetupView: View {
     @ObservedObject var controller: FillController
     @ObservedObject var systemSetup: SystemSetup
+    @ObservedObject var updater: UpdateManager
     @GlanceViewState private var selection: SettingsPage = .general
     @GlanceViewState private var devices = Camera.devices
-    @Namespace private var tabAnimation
+    @GlanceViewState private var passwordError: String?
+    @GlanceViewState private var identityToDelete: FaceIdentity?
+    @GlanceViewState private var tabFrames: [SettingsPage: CGRect] = [:]
     @Environment(\.colorScheme) private var colorScheme
 
     private var canEdit: Bool { controller.canEditOptions }
-    private var cardFill: Color { colorScheme == .dark ? .white.opacity(0.07) : .white.opacity(0.7) }
-    private var border: Color { colorScheme == .dark ? .white.opacity(0.10) : .black.opacity(0.08) }
+    private var cardFill: Color { colorScheme == .dark ? .white.opacity(0.08) : .white.opacity(0.75) }
+    private var border: Color { colorScheme == .dark ? .white.opacity(0.12) : .black.opacity(0.15) }
 
     var body: some View {
         ZStack {
             SettingsMaterial().ignoresSafeArea()
-            ScrollView(showsIndicators: false) {
-                VStack(alignment: .leading, spacing: 14) {
-                    VStack(alignment: .leading, spacing: 5) {
-                        Text(selection.title).font(.system(size: 26, weight: .bold))
-                        Text(selection.subtitle).font(.system(size: 12)).foregroundStyle(.secondary)
-                    }.padding(.bottom, 8)
-                    pageBody
-                    if selection != .about {
-                        HStack(alignment: .top, spacing: 8) {
-                            if controller.busy { ProgressView().controlSize(.mini) }
-                            Text(controller.status).font(.system(size: 11)).foregroundStyle(.secondary)
-                                .fixedSize(horizontal: false, vertical: true)
-                        }.padding(.horizontal, 4).padding(.top, 4)
-                        if controller.enabled {
-                            Text(controller.promptStatus).font(.system(size: 11)).foregroundStyle(.secondary)
-                                .fixedSize(horizontal: false, vertical: true).padding(.horizontal, 4)
-                            if !controller.diagnosticTrace.isEmpty {
-                                Button("Copy diagnostics") { controller.copyDiagnostics() }
-                                    .buttonStyle(.link).font(.system(size: 11))
-                                    .help("Copies timing and system-host metadata for the last attempt; no password or face data.")
-                            }
-                        }
+            if !controller.settingsUnlocked {
+                lockedState
+                    .padding(.bottom, 72)
+            } else {
+                ScrollView(showsIndicators: false) {
+                    VStack(alignment: .leading, spacing: 12) {
+                        pageBody
+
                     }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.horizontal, 16).padding(.top, 56).padding(.bottom, 84)
                 }
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.horizontal, 24).padding(.top, 66).padding(.bottom, 96)
             }
-            .id(selection)
-            .overlay(alignment: .top) { header }
-            .overlay(alignment: .bottom) { tabBar.padding(.bottom, 14) }
         }
-        .frame(width: 500, height: min(620, (NSScreen.main?.visibleFrame.height ?? 760) - 60))
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .overlay(alignment: .top) {
+            ZStack(alignment: .top) {
+                ProgressiveHeaderBlur(height: 80).accessibilityHidden(true)
+                header
+            }
+        }
+        .overlay(alignment: .bottom) { tabBar.padding(.bottom, 14) }
+        // Include overlay chrome in the full-window coordinate space too;
+        // otherwise the toolbar safe inset shifts the Session capsule down.
+        .ignoresSafeArea()
         .tint(GlanceTheme.accent)
         .onChange(of: selection) { _, page in
             controller.passwordDraft = ""
             if page == .camera { devices = Camera.devices }
             systemSetup.refresh()
         }
-        .onDisappear { controller.lockSettings() }
+        .onDisappear { selection = .general; controller.lockSettings() }
+        .confirmationDialog("Delete this enrolled face?", isPresented: Binding(
+            get: { identityToDelete != nil }, set: { if !$0 { identityToDelete = nil } }
+        ), titleVisibility: .visible) {
+            if let identity = identityToDelete {
+                Button("Delete \(identity.name)", role: .destructive) {
+                    controller.deleteIdentity(identity.id); identityToDelete = nil
+                }
+            }
+            Button("Cancel", role: .cancel) { identityToDelete = nil }
+        }
     }
 
     private var header: some View {
         HStack {
             Spacer()
-            if selection == .camera {
+            if selection == .camera && controller.settingsUnlocked {
                 Button { devices = Camera.devices; systemSetup.refresh() } label: {
                     Image(systemName: "arrow.clockwise").frame(width: 30, height: 30)
                 }.buttonStyle(.plain).background(cardFill, in: Circle())
@@ -116,47 +114,68 @@ struct SetupView: View {
                 if controller.settingsUnlocked { controller.lockSettings() }
                 else { controller.unlockSettings() }
             } label: {
-                Image(systemName: controller.settingsUnlocked ? "lock.open" : "lock.fill")
-                    .frame(width: 30, height: 30)
+                HStack(spacing: 7) {
+                    Image(systemName: controller.settingsUnlocked ? "lock.open.fill" : "lock.fill")
+                        .font(.system(size: 12))
+                        .contentTransition(.symbolEffect(.replace))
+                    Text(controller.settingsUnlocked ? "Session unlocked" : "Session locked")
+                        .font(.system(size: 13, weight: .medium))
+                        .contentTransition(.opacity)
+                }
+                .padding(.horizontal, 12).frame(height: 30)
+                .background(cardFill, in: Capsule())
+                .overlay(Capsule().strokeBorder(border))
             }
-            .buttonStyle(.plain).background(cardFill, in: Circle())
+            .buttonStyle(.plain)
             .disabled(!controller.settingsUnlocked && !controller.canUnlockSettings)
-            .help(controller.settingsUnlocked ? "Lock settings" : "Unlock to edit settings")
-            .accessibilityLabel(controller.settingsUnlocked ? "Lock settings" : "Unlock to edit settings")
+            .help(controller.settingsUnlocked ? "Lock session" : "Unlock session")
+            .accessibilityLabel(controller.settingsUnlocked ? "Lock session" : "Unlock session")
+            .animation(.easeInOut(duration: 0.28), value: controller.settingsUnlocked)
         }
-        .padding(.horizontal, 24).frame(height: 52)
-        .background(.regularMaterial)
+        .padding(.horizontal, 16).frame(height: 52)
     }
 
     private var tabBar: some View {
-        HStack(spacing: 0) {
-            ForEach(SettingsPage.allCases) { page in
-                Button {
-                    withAnimation(.spring(response: 0.35, dampingFraction: 0.82)) { selection = page }
-                } label: {
-                    HStack(spacing: 7) {
-                        Image(systemName: page.icon).font(.system(size: 15, weight: .medium))
-                            .frame(width: 20, height: 20)
-                        if selection == page {
-                            Text(page.title).font(.system(size: 13, weight: .medium)).fixedSize()
+        ZStack(alignment: .topLeading) {
+            if let frame = tabFrames[selection] {
+                Capsule().fill(cardFill).overlay(Capsule().strokeBorder(border))
+                    .frame(width: frame.width, height: frame.height)
+                    .offset(x: frame.minX, y: frame.minY)
+                    .transition(.opacity)
+            }
+            HStack(spacing: 0) {
+                ForEach(SettingsPage.allCases) { page in
+                    Button {
+                        withAnimation(.spring(response: 0.35, dampingFraction: 0.82)) { selection = page }
+                    } label: {
+                        HStack(spacing: 7) {
+                            Image(systemName: page.icon).font(.system(size: 15, weight: .medium))
+                                .frame(width: 19, height: 19)
+                            if selection == page {
+                                Text(page.title).font(.system(size: 13, weight: .medium)).fixedSize()
+                                    .transition(.modifier(active: SettingsTabReveal(progress: 0),
+                                                          identity: SettingsTabReveal(progress: 1)))
+                            }
                         }
+                        .padding(.horizontal, selection == page ? 14 : 11).frame(height: 42)
+                        .contentShape(Capsule())
                     }
-                    .padding(.horizontal, selection == page ? 14 : 11).frame(height: 42)
-                    .contentShape(Capsule())
-                    .background {
-                        if selection == page {
-                            Capsule().fill(cardFill).overlay(Capsule().strokeBorder(border))
-                                .matchedGeometryEffect(id: "selection", in: tabAnimation)
-                        }
-                    }
+                    .buttonStyle(.plain).help(page.title).accessibilityLabel(page.title)
+                    .accessibilityAddTraits(selection == page ? .isSelected : [])
+                    .background(GeometryReader { proxy in
+                        Color.clear.preference(key: SettingsTabFrames.self,
+                            value: [page: proxy.frame(in: .named("FaceprintTabs"))])
+                    })
                 }
-                .buttonStyle(.plain).help(page.title).accessibilityLabel(page.title)
-                .accessibilityAddTraits(selection == page ? .isSelected : [])
             }
         }
-        .padding(6).background(.regularMaterial, in: Capsule())
+        .coordinateSpace(name: "FaceprintTabs")
+        .padding(.horizontal, 6).frame(height: 54)
+        .background(.regularMaterial, in: Capsule())
         .overlay(Capsule().strokeBorder(border))
-        .shadow(color: .black.opacity(0.08), radius: 12, y: 4)
+        .onPreferenceChange(SettingsTabFrames.self) { frames in
+            withAnimation(.spring(response: 0.35, dampingFraction: 0.82)) { tabFrames = frames }
+        }
     }
 
     @ViewBuilder private var pageBody: some View {
@@ -170,34 +189,28 @@ struct SetupView: View {
     }
 
     private var generalPage: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            group {
-                row("Settings", detail: controller.settingsUnlocked
-                    ? "Unlocked. You can change settings while autofill stays enabled."
-                    : "Unlock to make changes. Enabled autofill keeps working while settings are locked.") {
-                    Button(controller.settingsUnlocked ? "Lock" : "Unlock to edit") {
-                        if controller.settingsUnlocked { controller.lockSettings() } else { controller.unlockSettings() }
-                    }.buttonStyle(.bordered).controlSize(.small)
-                        .disabled(!controller.settingsUnlocked && !controller.canUnlockSettings)
-                }
+        VStack(alignment: .leading, spacing: 12) {
+            if !systemSetup.cameraGranted || !systemSetup.accessibilityGranted {
+                sectionTitle("Permissions")
+                permissionsGroup
             }
             group {
-                toggleRow("Enable face-assisted filling", detail: controller.canEnable || controller.enabled
-                    ? "Recognize your face and fill supported Mac password prompts. Runs while settings are locked."
-                    : "Enroll your face and save your Mac login password before enabling filling.",
+                toggleRow("Enable face-assisted filling", detail: "",
                     isOn: Binding(get: { controller.enabled }, set: controller.setEnabled),
                     disabled: !controller.canModifySettings || (!controller.enabled && !controller.canEnable))
+                rowDivider
+                toggleRow("Launch at login", detail: "",
+                    isOn: Binding(get: { systemSetup.launchAtLogin }, set: { systemSetup.setLaunchAtLogin($0) }))
+                rowDivider
+                toggleRow("Show in menu bar", detail: "",
+                    isOn: Binding(get: { systemSetup.showInMenuBar }, set: systemSetup.setShowInMenuBar))
                 if controller.enabled && !controller.dataSessionReady {
                     rowDivider
-                    row("Autofill paused", detail: "Authenticate to open protected data after launch or sleep. Settings stay locked.") {
+                    row("Autofill paused", detail: "Authenticate to open protected data after launch or sleep. The settings session stays unchanged.") {
                         Button("Resume", action: controller.resumeAutofill)
                             .buttonStyle(.bordered).controlSize(.small).disabled(controller.busy)
                     }
                 }
-            }
-            group {
-                toggleRow("Launch at login", detail: systemSetup.loginStatus,
-                    isOn: Binding(get: { systemSetup.launchAtLogin }, set: { systemSetup.setLaunchAtLogin($0) }))
                 if systemSetup.loginNeedsApproval {
                     rowDivider
                     row("Login approval", detail: "Allow Faceprint in macOS Login Items.") {
@@ -206,42 +219,92 @@ struct SetupView: View {
                     }
                 }
             }
-            sectionTitle("RECOGNITION")
+            sectionTitle("Behavior")
             recognitionOptions
-            sectionTitle("DYNAMIC ISLAND")
-            group {
-                row("Animation", detail: "Recognition and filling feedback. A new style applies to the next scan.") {
-                    Picker("Animation", selection: Binding(get: { controller.islandStyle }, set: controller.setIslandStyle)) {
-                        Text("Original").tag(UnlockAnimationStyle.original)
-                        Text("Minimal").tag(UnlockAnimationStyle.minimal)
-                    }.labelsHidden().frame(width: 126).disabled(!canEdit)
-                }
-            }
-            sectionTitle("PERMISSIONS")
-            permissionsGroup
-            sectionTitle("SETTINGS & DATA PROTECTION")
-            group {
-                row("Automatic protection", detail: "Editing locks after 5 minutes. Protected data locks on sleep, screen lock, user switch, or 30 minutes without secret use.") {
-                    Image(systemName: "lock.shield").foregroundStyle(.secondary)
-                }
-                rowDivider
-                row("Local recognition", detail: "Glance’s ArcFace model compares your face on this Mac. Webcam matching does not provide Face ID’s replay protection.") {
-                    Image(systemName: "faceid").foregroundStyle(.secondary)
-                }
-            }
+            sectionTitle("Animation")
+            animationOptions
         }
     }
 
     private var recognitionOptions: some View {
         group {
-            toggleRow("Passive photo checks", detail: "Glance Light checks for obvious screen glare and device borders. No blink or head turn required. Applies to the next scan; photos or replayed video can still be accepted.",
+            toggleRow("Retry on notch hover", detail: "",
+                isOn: Binding(get: { controller.retryOnHover }, set: controller.setRetryOnHover))
+            rowDivider
+            toggleRow("Auto retry once after failure", detail: "",
+                isOn: Binding(get: { controller.autoRetryOnce }, set: controller.setAutoRetryOnce))
+            rowDivider
+            toggleRow("Passive photo checks", detail: "Checks for obvious photos or screens. No blink or head turn required.",
                 isOn: Binding(get: { controller.passivePhotoChecks }, set: controller.setPhotoChecks))
             rowDivider
-            toggleRow("Scan Touch ID prompts", detail: "Start recognition at supported Touch ID cards, then select Use Password and fill after a face match. Applies to the next request; off by default.",
+            toggleRow("Scan Touch ID prompts", detail: "Recognize your face at Touch ID prompts, then switch to password filling.",
                 isOn: Binding(get: { controller.automaticPasswordFallback }, set: controller.setAutomaticPasswordFallback))
             rowDivider
-            toggleRow("Press Return after filling", detail: "Submit after a verified password fill. This can approve system changes. Off by default; enabling applies to the next attempt.",
+            toggleRow("Press Return after filling", detail: "Press Return after filling. Can approve system changes.",
                 isOn: Binding(get: { controller.autoSubmit }, set: controller.setAutoSubmit))
+        }
+    }
+
+    private var animationOptions: some View {
+        group {
+            toggleRow("Show animation", detail: "",
+                isOn: Binding(get: { controller.showAnimation }, set: controller.setShowAnimation))
+            rowDivider
+            HStack(alignment: .top, spacing: 15) {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Style").font(.system(size: 13))
+                    Text("The animation that appears when filling a password")
+                        .font(.system(size: 12)).foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }.frame(maxWidth: .infinity, alignment: .leading)
+                animationTile(.minimal, title: "Minimal")
+                animationTile(.original, title: "Original")
+            }.padding(.horizontal, 14).padding(.vertical, 14)
+                .disabled(!canEdit || !controller.showAnimation)
+                .opacity(controller.showAnimation ? 1 : 0.4)
+        }
+    }
+
+    private func animationTile(_ style: UnlockAnimationStyle, title: String) -> some View {
+        let selected = controller.islandStyle == style
+        return Button { controller.selectAnimation(style) } label: {
+            VStack(spacing: 8) {
+                ZStack {
+                    cardFill
+                    if selected { GlanceTheme.accent.opacity(0.12) }
+                    if style == .minimal {
+                        HStack(spacing: 6) {
+                            Image(systemName: "lock.fill").font(.system(size: 11, weight: .semibold)).foregroundStyle(.white)
+                            Spacer(minLength: 6)
+                            animationStill.frame(width: 18, height: 18)
+                        }.padding(.horizontal, 10).frame(height: 28)
+                            .background(.black, in: Capsule()).padding(.horizontal, 12)
+                    } else {
+                        animationStill.padding(10).frame(width: 50, height: 50)
+                            .background(.black, in: RoundedRectangle(cornerRadius: 17))
+                    }
+                }.frame(width: 112, height: 76)
+                    .clipShape(RoundedRectangle(cornerRadius: 13))
+                    .shadow(color: .black.opacity(0.15), radius: 4)
+                    .overlay(RoundedRectangle(cornerRadius: 13).strokeBorder(border))
+                    .overlay {
+                        if selected {
+                            RoundedRectangle(cornerRadius: 19)
+                                .strokeBorder(GlanceTheme.accent, lineWidth: 3.5).padding(-6)
+                        }
+                    }
+                Text(title).font(.system(size: 12, weight: .medium)).foregroundStyle(selected ? .primary : .secondary)
+            }
+        }.buttonStyle(.plain).accessibilityLabel(title)
+            .accessibilityAddTraits(selected ? .isSelected : [])
+    }
+
+    private var animationStill: some View {
+        Group {
+            if let url = Bundle.main.url(forResource: "unlockstatic", withExtension: "png"),
+               let image = NSImage(contentsOf: url) {
+                Image(nsImage: image).resizable().scaledToFit()
+            } else { Image(systemName: "faceid").foregroundStyle(GlanceTheme.accent) }
         }
     }
 
@@ -268,32 +331,108 @@ struct SetupView: View {
         }
     }
 
-    @ViewBuilder private var facePage: some View {
-        if !controller.settingsUnlocked {
-            lockedState("Unlock settings to enroll or update your face.")
-        } else {
+    private var facePage: some View {
+        VStack(alignment: .leading, spacing: 12) {
             group {
-                row("Face encrypted", detail: "Your face template stays on this Mac.") {
-                    Image(systemName: "lock.fill").foregroundStyle(.secondary)
-                }
+                VStack(alignment: .leading, spacing: 6) {
+                    HStack {
+                        Text("Face encrypted").font(.system(size: 13))
+                        Spacer()
+                        Image(systemName: "lock.fill").font(.system(size: 12)).foregroundStyle(.secondary)
+                    }
+                    Text("Enroll separate identities for different people, accessories (e.g. glasses), facial expressions, or new lighting environments. This improves recognition quality.")
+                        .font(.system(size: 12)).foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }.padding(.horizontal, 14).padding(.vertical, 12)
             }
-            group {
-                VStack(spacing: 16) {
-                    Image(systemName: "faceid").font(.system(size: 40, weight: .light)).foregroundStyle(GlanceTheme.accent)
-                    Text(controller.hasFace ? "Your face is enrolled" : "Set up your face").font(.system(size: 16, weight: .semibold))
-                    Text("Follow the nine-direction capture ring. The camera preview appears only during enrollment.")
-                        .font(.system(size: 12)).foregroundStyle(.secondary).multilineTextAlignment(.center)
-                    Button(controller.hasFace ? "Enroll face again" : "Enroll my face", action: controller.enroll)
-                        .buttonStyle(.borderedProminent).clipShape(Capsule()).disabled(!controller.canEnrollFace)
-                }.frame(maxWidth: .infinity).padding(26)
+            HStack {
+                sectionTitle("Identities")
+                Spacer()
+                Button {
+                    controller.enroll()
+                } label: {
+                    Image(systemName: "plus").font(.system(size: 12, weight: .semibold))
+                        .frame(width: 22, height: 22)
+                }.buttonStyle(.plain).foregroundStyle(.secondary)
+                    .disabled(!controller.canEnrollFace).help("Enroll another face")
+                    .padding(.trailing, 10).padding(.top, 8)
             }
-            caption("Enrollment temporarily pauses recognition. Your autofill switch stays unchanged and filling resumes when enrollment finishes or is cancelled.")
+            ForEach(controller.identities) { identity in
+                identityCard(identity)
+            }
+            if controller.identities.isEmpty {
+                VStack(spacing: 12) {
+                    Image(systemName: "faceid").font(.system(size: 34)).foregroundStyle(.secondary)
+                    Text("Face enrollment").font(.system(size: 13))
+                    Button("Enroll my face") { controller.enroll() }
+                        .buttonStyle(.borderedProminent).buttonBorderShape(.capsule)
+                        .disabled(!controller.canEnrollFace)
+                }.frame(maxWidth: .infinity, minHeight: 240)
+            } else if !controller.hasFace {
+                caption("No identities are enabled. Switch one on to use face-assisted filling.")
+            }
         }
+    }
+
+    private func identityCard(_ identity: FaceIdentity) -> some View {
+        group {
+            VStack(alignment: .leading, spacing: 16) {
+                HStack {
+                    Text(identity.name).font(.system(size: 13)).lineLimit(1)
+                        .padding(.horizontal, 14).padding(.vertical, 7)
+                        .background(cardFill, in: Capsule()).overlay(Capsule().strokeBorder(border))
+                    Spacer(minLength: 8)
+                    Toggle("Enable \(identity.name)", isOn: Binding(
+                        get: { controller.identities.first { $0.id == identity.id }?.isEnabled ?? false },
+                        set: { controller.setIdentityEnabled(identity.id, enabled: $0) }
+                    )).labelsHidden().toggleStyle(.switch).controlSize(.small)
+                        .disabled(!canEdit || controller.isEnrollingFace)
+                }
+                VStack(alignment: .leading, spacing: 6) {
+                    Text(qualityCaption(identity.template)).font(.system(size: 12)).foregroundStyle(.secondary)
+                    HStack(spacing: 8) {
+                        qualityTicks(identity.template)
+                        Spacer(minLength: 12)
+                        Button("Recapture") { controller.enroll(identityID: identity.id) }
+                            .buttonStyle(.bordered).buttonBorderShape(.capsule).controlSize(.small)
+                            .disabled(!controller.canEnrollFace)
+                        Button { identityToDelete = identity } label: {
+                            Image(systemName: "trash").frame(width: 18, height: 18)
+                        }.buttonStyle(.bordered).buttonBorderShape(.circle).controlSize(.small)
+                            .disabled(!canEdit || controller.isEnrollingFace).help("Delete \(identity.name)")
+                    }
+                }.opacity(identity.isEnabled ? 1 : 0.45)
+            }.padding(.horizontal, 14).padding(.vertical, 12)
+        }
+    }
+
+    private func qualityCaption(_ template: FaceTemplate) -> String {
+        let ratings = template.qualities?.compactMap { $0 } ?? []
+        guard !ratings.isEmpty else { return "Capture quality • not recorded" }
+        let percent = Int((Double(ratings.filter { $0 >= 0.4 }.count) / Double(ratings.count) * 100).rounded())
+        return "Capture quality • \(percent)%"
+    }
+
+    private func qualityTicks(_ template: FaceTemplate) -> some View {
+        HStack(spacing: 5.5) {
+            ForEach(template.samples.indices, id: \.self) { index in
+                Capsule().fill(qualityColor(template.qualities.flatMap { index < $0.count ? $0[index] : nil }))
+                    .frame(maxWidth: 3.5)
+            }
+        }.frame(width: min(250, max(0, CGFloat(template.samples.count) * 9 - 5.5)), height: 26)
+            .accessibilityLabel("Capture quality for \(template.samples.count) samples")
+    }
+
+    private func qualityColor(_ value: Float?) -> Color {
+        guard let value else { return .secondary.opacity(0.4) }
+        if value < 0.4 { return Color(red: 1, green: 0.33, blue: 0.33) }
+        if value < 0.5 { return Color(red: 1, green: 0.75, blue: 0.33) }
+        return Color(red: 0.52, green: 1, blue: 0.47)
     }
 
     @ViewBuilder private var passwordPage: some View {
         if !controller.settingsUnlocked {
-            lockedState("Unlock settings to save or change your Mac login password.")
+            lockedState
         } else {
             group {
                 row(controller.hasPassword ? "Password encrypted" : "No password saved", detail: controller.protectionStatus) {
@@ -311,13 +450,17 @@ struct SetupView: View {
                             do {
                                 try controller.savePassword(controller.passwordDraft)
                                 controller.passwordDraft = ""
-                            } catch { controller.status = error.localizedDescription }
+                                passwordError = nil
+                            } catch { passwordError = error.localizedDescription }
                         }.buttonStyle(.borderedProminent).controlSize(.small)
                             .disabled(controller.passwordDraft.isEmpty || !canEdit)
                     }
+                    if let passwordError {
+                        Text(passwordError).font(.system(size: 11)).foregroundStyle(.red)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
                 }.padding(14)
             }
-            caption("Use the password for your current Mac account. Saved data is encrypted locally. Locking settings keeps enabled autofill running.")
             sectionTitle("SAVED DATA")
             group {
                 row("Remove saved data", detail: "Remove the saved face and password, and stop autofill.") {
@@ -328,20 +471,35 @@ struct SetupView: View {
         }
     }
 
+    private var cameraLabel: String {
+        if controller.cameraID.isEmpty { return "System default" }
+        return devices.first { $0.uniqueID == controller.cameraID }?.localizedName ?? "Camera unavailable"
+    }
+
     private var cameraPage: some View {
         VStack(alignment: .leading, spacing: 14) {
             group {
                 row("Recognition camera", detail: "Used for enrollment and recognition. Changes apply to the next scan.") {
-                    Picker("Camera", selection: Binding(get: { controller.cameraID }, set: controller.setCameraID)) {
-                        Text("System default").tag("")
-                        ForEach(devices, id: \.uniqueID) { device in Text(device.localizedName).tag(device.uniqueID) }
-                        if !controller.cameraID.isEmpty && !devices.contains(where: { $0.uniqueID == controller.cameraID }) {
-                            Text("Selected camera (unavailable)").tag(controller.cameraID)
+                    Menu {
+                        Button("System default") { controller.setCameraID("") }
+                        ForEach(devices, id: \.uniqueID) { device in
+                            Button(device.localizedName) { controller.setCameraID(device.uniqueID) }
                         }
-                    }.labelsHidden().frame(width: 180).disabled(!canEdit)
+                    } label: {
+                        HStack(spacing: 6) {
+                            Text(cameraLabel).lineLimit(1).truncationMode(.middle)
+                            Image(systemName: "chevron.up.chevron.down")
+                                .font(.system(size: 10, weight: .semibold)).foregroundStyle(.secondary)
+                        }.font(.system(size: 13)).foregroundStyle(.primary)
+                            .padding(.horizontal, 12).frame(height: 28)
+                            .background(cardFill, in: Capsule())
+                            .overlay(Capsule().strokeBorder(border))
+                            .contentShape(Capsule())
+                    }.menuStyle(.button).buttonStyle(.plain).menuIndicator(.hidden)
+                        .tint(.primary).fixedSize().disabled(!canEdit)
+                        .accessibilityLabel("Recognition camera: \(cameraLabel)")
                 }
             }
-            caption("The camera runs during enrollment and recognition. Camera and Accessibility permissions are in General, below Dynamic Island.")
         }
     }
 
@@ -355,8 +513,25 @@ struct SetupView: View {
                 Text("\(Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "")")
                     .font(.system(size: 12)).foregroundStyle(.secondary)
             }
-            Text("Local face recognition for supported macOS password prompts.")
-                .font(.system(size: 13)).foregroundStyle(.secondary).multilineTextAlignment(.center)
+            group {
+                row("Check for Updates", detail: updater.status) {
+                    Button(updater.checking ? "Checking…" : "Check", action: updater.check)
+                        .buttonStyle(.borderedProminent).buttonBorderShape(.capsule).controlSize(.small)
+                        .disabled(updater.checking || updater.installing)
+                }
+                rowDivider
+                toggleRow("Automatically check for updates", detail: "",
+                    isOn: Binding(get: { updater.automaticallyChecks }, set: updater.setAutomaticallyChecks))
+                if let update = updater.available {
+                    rowDivider
+                    row("Faceprint \(update.version)", detail: updater.installing ? "Downloading and verifying the update…" : "Install the GitHub release and restart Faceprint.") {
+                        Button(updater.installing ? "Installing…" : "Install and Restart", action: updater.install)
+                            .buttonStyle(.borderedProminent).buttonBorderShape(.capsule).controlSize(.small)
+                            .disabled(updater.installing || !canEdit)
+                    }
+                    if updater.installing { ProgressView(value: updater.progress).padding(.horizontal, 14).padding(.bottom, 12) }
+                }
+            }
             group {
                 VStack(spacing: 12) {
                     Link("GitHub project", destination: URL(string: "https://github.com/Er1cG1ao/faceprint")!)
@@ -364,8 +539,6 @@ struct SetupView: View {
                     Link("Licenses & model terms", destination: URL(string: "https://github.com/Er1cG1ao/faceprint/blob/main/THIRD_PARTY_NOTICES.md")!)
                 }.font(.system(size: 12)).frame(maxWidth: .infinity).padding(18)
             }
-            caption("Faceprint code is MIT licensed. InsightFace pretrained weights retain their separate non-commercial research terms.")
-            caption("Apple Silicon · macOS 15+")
         }.frame(maxWidth: .infinity).padding(.top, 12)
     }
 
@@ -373,16 +546,17 @@ struct SetupView: View {
         Image(systemName: "checkmark.circle.fill").foregroundStyle(.green).accessibilityLabel("Allowed")
     }
 
-    private func lockedState(_ detail: String) -> some View {
-        VStack(spacing: 14) {
-            Image(systemName: "lock.fill").font(.system(size: 34, weight: .light)).foregroundStyle(.secondary)
-            Text("Settings locked").font(.system(size: 16, weight: .medium))
-            Text(detail).font(.system(size: 12)).foregroundStyle(.secondary)
-            Button("Unlock to edit", action: controller.unlockSettings)
-                .buttonStyle(.borderedProminent).clipShape(Capsule()).disabled(!controller.canUnlockSettings)
-            Text("Enabled autofill keeps working while settings are locked.")
-                .font(.system(size: 11)).foregroundStyle(.secondary)
-        }.multilineTextAlignment(.center).frame(maxWidth: .infinity, minHeight: 280)
+    private var lockedState: some View {
+        VStack(spacing: 12) {
+            Image(systemName: "lock.fill")
+                .font(.system(size: 34, weight: .light)).foregroundStyle(.secondary)
+            Text("Session locked").font(.system(size: 14, weight: .medium)).foregroundStyle(.secondary)
+                .padding(.top, 4)
+            Button("Unlock session", action: controller.unlockSettings)
+                .buttonStyle(.borderedProminent).buttonBorderShape(.capsule)
+                .controlSize(.large).font(.system(size: 13, weight: .semibold))
+                .disabled(!controller.canUnlockSettings)
+        }.frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
     private func group<Content: View>(@ViewBuilder content: () -> Content) -> some View {
@@ -396,11 +570,15 @@ struct SetupView: View {
         HStack(spacing: 16) {
             VStack(alignment: .leading, spacing: 5) {
                 Text(title).font(.system(size: 13))
-                Text(detail).font(.system(size: 11)).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+                if !detail.isEmpty {
+                    Text(detail).font(.system(size: 11)).foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
             }
             Spacer(minLength: 0)
             control().fixedSize(horizontal: true, vertical: false)
-        }.padding(14)
+        }.padding(.horizontal, 14).padding(.vertical, detail.isEmpty ? 0 : 12)
+            .frame(minHeight: 44)
     }
 
     private var rowDivider: some View { Divider().padding(.horizontal, 14) }
@@ -408,7 +586,7 @@ struct SetupView: View {
     private func toggleRow(_ title: String, detail: String, isOn: Binding<Bool>, disabled: Bool? = nil) -> some View {
         row(title, detail: detail) {
             Toggle(title, isOn: isOn)
-                .labelsHidden().toggleStyle(.switch).controlSize(.regular)
+                .labelsHidden().toggleStyle(.switch).controlSize(.small)
                 .accessibilityLabel(title).disabled(disabled ?? !canEdit)
         }
     }
@@ -419,7 +597,23 @@ struct SetupView: View {
     }
 
     private func sectionTitle(_ text: String) -> some View {
-        Text(text).font(.system(size: 10, weight: .medium)).foregroundStyle(.secondary)
-            .padding(.horizontal, 4).padding(.top, 8)
+        Text(text).font(.system(size: 13, weight: .medium)).foregroundStyle(.secondary)
+            .padding(.horizontal, 10).padding(.top, 8)
+    }
+}
+
+// Adapted from Glance SettingsTabBar (Jonathan Zhou, MIT; LICENSE-Glance.txt).
+private struct SettingsTabFrames: PreferenceKey {
+    static var defaultValue: [SettingsPage: CGRect] = [:]
+    static func reduce(value: inout [SettingsPage: CGRect], nextValue: () -> [SettingsPage: CGRect]) {
+        value.merge(nextValue()) { _, new in new }
+    }
+}
+
+private struct SettingsTabReveal: ViewModifier {
+    var progress: CGFloat
+    func body(content: Content) -> some View {
+        content.opacity(progress).blur(radius: (1 - progress) * 4)
+            .offset(x: (1 - progress) * -10)
     }
 }

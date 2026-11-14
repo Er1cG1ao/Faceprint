@@ -1,5 +1,6 @@
 import Foundation
 import CoreGraphics
+import AppKit
 
 struct FaceRecognitionResult {
     let embedding: [Float]
@@ -11,11 +12,13 @@ struct FaceTemplate: Codable, Sendable {
     let modelIdentifier: String
     let samples: [[Float]]
     let poses: [String]?
+    let qualities: [Float?]?
 
-    init(modelIdentifier: String, samples: [[Float]], poses: [String]? = nil) {
+    init(modelIdentifier: String, samples: [[Float]], poses: [String]? = nil, qualities: [Float?]? = nil) {
         self.modelIdentifier = modelIdentifier
         self.samples = samples
         self.poses = poses
+        self.qualities = qualities
     }
 
     func matches(_ embedding: [Float]) -> Bool {
@@ -31,17 +34,48 @@ struct FaceTemplate: Codable, Sendable {
     }
 }
 
+struct FaceIdentity: Codable, Identifiable, Sendable {
+    var id: UUID
+    var name: String
+    var isEnabled: Bool
+    var template: FaceTemplate
+
+    init(id: UUID = UUID(), name: String, isEnabled: Bool = true, template: FaceTemplate) {
+        self.id = id; self.name = name; self.isEnabled = isEnabled; self.template = template
+    }
+}
+
+struct FaceIdentityCollection: Codable, Sendable {
+    let version: Int
+    var identities: [FaceIdentity]
+    init(identities: [FaceIdentity]) { version = 1; self.identities = identities }
+
+    static func decode(_ data: Data) throws -> Self {
+        let decoder = JSONDecoder()
+        if let collection = try? decoder.decode(Self.self, from: data) {
+            guard collection.version == 1 else { throw CocoaError(.coderReadCorrupt) }
+            return collection
+        }
+        let legacy = try decoder.decode(FaceTemplate.self, from: data)
+        return Self(identities: [FaceIdentity(name: NSFullUserName(), template: legacy)])
+    }
+
+    func matches(_ embedding: [Float]) -> Bool {
+        identities.contains { $0.isEnabled && $0.template.matches(embedding) }
+    }
+}
+
 enum SecureFaceStore {
-    static func save(_ template: FaceTemplate) throws {
-        var data = try JSONEncoder().encode(template)
+    static func saveIdentities(_ identities: [FaceIdentity]) throws {
+        var data = try JSONEncoder().encode(FaceIdentityCollection(identities: identities))
         defer { data.resetBytes(in: 0..<data.count) }
         try SecureCredentialManager.saveFaceData(data)
     }
 
-    static func load() throws -> FaceTemplate? {
-        guard var data = try SecureCredentialManager.readFaceData() else { return nil }
+    static func loadIdentities() throws -> [FaceIdentity] {
+        guard var data = try SecureCredentialManager.readFaceData() else { return [] }
         defer { data.resetBytes(in: 0..<data.count) }
-        return try JSONDecoder().decode(FaceTemplate.self, from: data)
+        return try FaceIdentityCollection.decode(data).identities
     }
 }
 

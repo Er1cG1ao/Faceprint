@@ -8,7 +8,10 @@ import SwiftUI
 @MainActor
 final class OnboardingController {
     let camera: Camera
-    let step = OnboardingStep.enroll
+    private(set) var step = OnboardingStep.enroll
+    var faceName = ""
+    private var nameContinuation: CheckedContinuation<String, Error>?
+    private var nameRequestID: UUID?
     private let sweepWindow = EnrollmentSweepWindowController()
     var onCancel: (() -> Void)?
     private(set) var currentPoseIndex = 0
@@ -29,9 +32,9 @@ final class OnboardingController {
     var currentPose: EnrollmentPose? { EnrollmentPose(rawValue: currentPoseIndex) }
     var panelSize: CGSize {
         let geometry = NotchGeometry.preferredScreen().map(NotchGeometry.forScreen) ?? NotchGeometry.forMainScreen()
-        return OnboardingMetrics.panelSize(for: .enroll, style: geometry.style)
+        return OnboardingMetrics.panelSize(for: step, style: geometry.style)
     }
-    var panelBottomRadius: CGFloat { OnboardingMetrics.panelBottomRadius(for: .enroll) }
+    var panelBottomRadius: CGFloat { OnboardingMetrics.panelBottomRadius(for: step) }
 
     var enrollmentInstruction: String {
         if enrollmentComplete { return "Face captured" }
@@ -58,14 +61,49 @@ final class OnboardingController {
         return HeadTurn(angle: angle < 0 ? angle + 360 : angle, progress: min(magnitude, 1))
     }
 
-    func back() { onCancel?() }
+    func back() {
+        if step == .name {
+            nameContinuation?.resume(throwing: EnrollmentNameAction.recapture)
+            nameContinuation = nil; nameRequestID = nil
+        } else { onCancel?() }
+    }
+    func saveName() {
+        let trimmed = faceName.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+        nameContinuation?.resume(returning: String(trimmed.prefix(80)))
+        nameContinuation = nil; nameRequestID = nil
+    }
+
+    func nameCapturedFace(suggestedName: String) async throws -> String {
+        try Task.checkCancellation()
+        camera.stop()
+        faceName = suggestedName
+        let request = UUID()
+        nameRequestID = request
+        withAnimation(OnboardingMetrics.stepAnimation) { step = .name }
+        return try await withTaskCancellationHandler(operation: {
+            try await withCheckedThrowingContinuation { continuation in
+                if Task.isCancelled { continuation.resume(throwing: CancellationError()) }
+                else { nameContinuation = continuation }
+            }
+        }, onCancel: { [weak self] in
+            Task { @MainActor in
+                guard let self, self.nameRequestID == request else { return }
+                self.nameContinuation?.resume(throwing: CancellationError())
+                self.nameContinuation = nil; self.nameRequestID = nil
+            }
+        })
+    }
 
     func dismiss() {
+        nameContinuation?.resume(throwing: CancellationError())
+        nameContinuation = nil; nameRequestID = nil
         sweepWindow.dismiss()
         NotchOverlayController.shared.dismissOnboarding()
     }
 
     func capture(using recognizer: Recognizer, deviceID: String) async throws -> FaceTemplate {
+        withAnimation(OnboardingMetrics.stepAnimation) { step = .enroll }
         currentPoseIndex = 0
         capturedPoses = []
         centerPulseTick = 0
@@ -90,6 +128,7 @@ final class OnboardingController {
         var capturedForPose = 0
         var samples: [[Float]] = []
         var poses: [String] = []
+        var qualities: [Float?] = []
         var lastFrame: UInt64?
 
         while let pose = currentPose {
@@ -131,6 +170,7 @@ final class OnboardingController {
             guard matchStreak >= 3 else { continue }
             matchStreak = 0
             samples.append(result.embedding)
+            qualities.append(result.face.quality)
             poses.append(pose.name)
             capturedForPose += 1
             if capturedForPose == 2 {
@@ -155,6 +195,8 @@ final class OnboardingController {
         let elapsed = OnboardingMetrics.guideOverlayFadeOut + OnboardingMetrics.previewFadeOut + OnboardingMetrics.checkmarkDelay
         try await Task.sleep(for: .seconds(max(OnboardingMetrics.cameraCompleteToNameDelay - elapsed, 0)))
         try Task.checkCancellation()
-        return FaceTemplate(modelIdentifier: "arcface-w600k_mbf-v1", samples: samples, poses: poses)
+        return FaceTemplate(modelIdentifier: "arcface-w600k_mbf-v1", samples: samples, poses: poses, qualities: qualities)
     }
 }
+
+enum EnrollmentNameAction: Error { case recapture }

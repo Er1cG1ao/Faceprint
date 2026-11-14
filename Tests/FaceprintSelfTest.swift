@@ -28,6 +28,21 @@ enum FaceprintSelfTest {
                 }
             }
         }
+        var retry = AutomaticRetryBudget()
+        precondition(!retry.claim(for: "a", enabled: false, recognitionFailed: true))
+        precondition(!retry.claim(for: "a", enabled: true, recognitionFailed: false), "Never repeat password delivery")
+        precondition(retry.claim(for: "a", enabled: true, recognitionFailed: true))
+        precondition(!retry.claim(for: "a", enabled: true, recognitionFailed: true), "Only one automatic retry")
+        retry.observeAbsence(now: 1)
+        retry.observeAbsence(now: 1.5)
+        precondition(!retry.claim(for: "a", enabled: true, recognitionFailed: true), "AX transition gap is not a new request")
+        retry.observeAbsence(now: 2)
+        retry.observeAbsence(now: 4.1)
+        precondition(retry.claim(for: "a", enabled: true, recognitionFailed: true), "A dismissed/reopened request has a fresh budget")
+        precondition(retry.claim(for: "b", enabled: true, recognitionFailed: true))
+        retry.reset()
+        precondition(retry.claim(for: "b", enabled: true, recognitionFailed: true), "Manual retry resets the budget")
+        print("PASS one automatic recognition retry; no delivery retry, transition-gap reset or repeated retry loop")
         var faceGate = FaceMatchGate()
         precondition(!faceGate.observe(frame: 1, matched: true))
         precondition(!faceGate.observe(frame: 1, matched: true), "One frame cannot count twice")
@@ -119,6 +134,33 @@ enum FaceprintSelfTest {
         let restored = try JSONDecoder().decode(FaceTemplate.self, from: JSONEncoder().encode(template))
         precondition(restored.matches(vector) && restored.poses == names)
         print("PASS legacy face templates and nine-view serialization")
+
+        let migrated = try FaceIdentityCollection.decode(legacy)
+        precondition(migrated.identities.count == 1 && migrated.matches(vector))
+        precondition(migrated.identities[0].template.qualities == nil)
+        var other = [Float](repeating: 0, count: 512); other[1] = 1
+        let otherTemplate = FaceTemplate(modelIdentifier: "arcface-w600k_mbf-v1", samples: Array(repeating: other, count: 18),
+                                         poses: names, qualities: Array(repeating: 0.7, count: 18))
+        var faces = migrated
+        faces.identities.append(FaceIdentity(name: "Glasses", template: otherTemplate))
+        precondition(faces.matches(other) && faces.matches(vector))
+        faces.identities[0].isEnabled = false
+        precondition(!faces.matches(vector) && faces.matches(other), "Disabled identities must never authorize filling")
+        let multi = try FaceIdentityCollection.decode(JSONEncoder().encode(faces))
+        precondition(multi.identities.map(\.id) == faces.identities.map(\.id))
+        precondition(multi.identities[1].template.qualities == Array(repeating: Float(0.7), count: 18))
+        faces.identities.removeLast()
+        precondition(!faces.matches(other) && !faces.matches(vector), "Removed/all-disabled faces must not match")
+        do {
+            _ = try FaceIdentityCollection.decode(Data("{broken".utf8))
+            preconditionFailure("Corrupt stores must not be treated as an empty enrollment")
+        } catch { }
+        let unknown = try JSONSerialization.data(withJSONObject: ["version": 99, "identities": []])
+        do {
+            _ = try FaceIdentityCollection.decode(unknown)
+            preconditionFailure("Unknown store versions must fail closed")
+        } catch { }
+        print("PASS legacy migration, encrypted-payload identity serialization, enabled-only matching, deletion and corrupt-store rejection")
 
         for text in ["x", "abc123!", "A😀Bé", String(repeating: "z", count: 21) + "😀👩‍💻"] {
             for limit in [1, 20] {

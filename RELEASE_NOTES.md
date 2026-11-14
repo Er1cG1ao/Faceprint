@@ -1,3 +1,53 @@
+# Faceprint 1.5.2
+
+- Simplify the menu bar menu to Settings… and Quit Faceprint.
+- Add Show in menu bar below Launch at login. It defaults on, persists across launches, and requires an unlocked settings session to change. Hiding the icon leaves automatic filling running.
+- Keep native Launch Services reopening: launching the running Faceprint app opens and activates Settings, even with the menu icon hidden; a minimized settings window is restored. Settings also appears in the application menu with Command-comma.
+- Publish the accumulated 1.3–1.5 changes: Glance-style settings/session layout and progressive blur, enrolled identity cards and post-capture naming, behavior/animation controls, no protected-data idle expiry, and verified GitHub updates with a separate installer/recovery copy. Sleep, screen lock, user switch, quit and editing-session authorization retain their protection.
+
+Validation: existing recognition/prompt/authorization regressions; update metadata, archive, tamper rejection and temporary-directory 1.5.1 → 1.5.2 installation/recovery checks; optimized arm64 build and nested signature/archive verification. Native menu hiding/reopening and real GitHub update/permission behavior require installed-app verification.
+
+This release is ad hoc signed and not Apple-notarized. Automatic updates are implemented, but TCC permission continuity still needs a compatible stable signing identity; this release may need Camera/Accessibility access again. Existing data is compatible with 1.5.1; earlier single-face data is imported on read. Older pre-identity versions cannot read face collections after they are saved in the new format.
+
+# Faceprint 1.5.1 — test build
+
+- Reuse Glance’s 80-point progressive header blur: three layered, gradient-masked backdrop materials fade from the window’s top edge to clear, behind the native traffic lights and Session capsule. The blur cannot intercept clicks or accessibility navigation.
+- Shorten Passive photo checks, Scan Touch ID prompts and Press Return descriptions. Keep the system-change implication of automatic Return in the concise copy.
+- Remove repeated session/recognition status footers across Settings and redundant Password/Camera/About captions. Keep update check/install state, attribution/license links and password-save errors. Move Copy diagnostics to the menu bar menu; status remains available in the menu bar tooltip.
+
+Validation: optimized arm64 build, nested code signature, ZIP and existing updater package/installation checks. This change only affects settings presentation and diagnostics access; live scroll blur and native appearance need installed-app verification. No release was published.
+
+# Faceprint 1.5.0 — test build
+
+- Ask for a name after a new face's nine-direction capture, inside Glance's notch/pill flow. Save commits the identity; Back repeats capture; cancel/closing settings/session lock discards pending enrollment. Recapture keeps the existing identity's name. Existing identities are not renamed.
+- Replace the camera pop-up with Glance's capsule menu treatment, neutral label and trailing chevrons.
+- Add About → Check for Updates, a persisted automatic-check option (at most once daily after launch), download progress, and confirmed Install and Restart. Use the public GitHub latest stable Release; test ZIPs and prereleases are not automatically offered.
+- Validate exact repository/asset/architecture/version URLs, GitHub SHA-256, bounded ZIP entry paths/kinds and expansion size, bundle metadata, macOS compatibility, arm64 executable and application code signatures before installation. A signed current app rejects updates with incompatible designated requirements. No unsigned fallback for signed apps.
+- Install from a separate signed helper after the parent exits, reverify the downloaded archive and both applications, stage on the destination volume and atomically swap app bundles. Keep the previous signed app as a recovery copy; roll back if the relaunch command fails. Install only at writable Applications locations. Saved data and preferences are not moved or deleted.
+- Support FACEPRINT_SIGN_IDENTITY when building, signing the helper before the app. Current builds remain ad hoc signed because no signing identity is available here. Automatic updates alone cannot preserve TCC permissions across ad hoc builds; a fixed compatible signing identity is still required. The first transition to that identity may need one more authorization.
+
+Validation: existing prompt/input/enrollment regressions, update metadata/ZIP/signature/atomic-swap tests and temporary-directory old-to-new bundle installation; optimized arm64 build, nested signature and archive verification. No production app was replaced and no release was published. Live naming focus/animation, real GitHub download/restart and permission continuity still require installed-app verification; permission continuity is blocked on configuring a fixed signing certificate.
+
+# Faceprint 1.4.0 — test build
+
+- Correct the Session header's safe-area placement so it shares the native traffic-light header. Use Glance's small native switches.
+- Move missing permissions to the top of General; hide the block once both are granted. Remove Session & data protection from General.
+- Remove the protected-data session's 30-minute idle expiry. Sleep, screen lock, user switch and app quit still clear it; editing-session locking remains separate.
+- Rename Recognition to Behavior. Add persisted Retry on notch hover and Auto retry once after failure switches. Automatic retry rediscovers the same signed request, requires a fresh face match, stops after one retry, respects cancellation, and never retries password-stage/input errors automatically.
+- Replace the animation menu with Show animation plus Glance-style Minimal/Original preview tiles. Disabling animation hides automatic scan feedback without disabling filling; style preview yields to real requests and enrollment.
+- Adapt Glance's enrolled-identity cards: names, enable switches, real per-sample capture-quality ticks, add, recapture and confirmed deletion. Store identities under the existing encrypted vault and match only enabled identities. Read legacy single-face data without deleting or overwriting it; legacy quality displays not recorded. New enrollment retains the existing nine-pose Glance flow and ArcFace model/thresholds.
+
+Validation: retry-budget/cancellation policy, legacy/multi-identity serialization and enabled-only matching regressions plus existing prompt/input/enrollment checks; optimized arm64 build, signature and archive verification. Live header placement, animation/hover behavior, permissions and multi-identity enrollment require installed-app verification. This is an unreleased test build. Identity collection writes are forward-only for face data; older binaries do not understand newly saved multiple identities.
+
+# Faceprint 1.3.1 — test build
+
+- Show Faceprint in the Dock and Cmd-Tab while Settings is open; hide it when the window closes, keeping the menu bar app and enabled autofill running. Dock reopening restores Settings.
+- Rename the editing authorization to Session. Show a centered Session locked / Unlock session screen and a header Session locked/unlocked capsule. The separate protected autofill data session and existing authentication/timeout policies are unchanged.
+- Match Glance's 500 × 620 native unified-titlebar window, inset traffic lights, full-window material, 16-point content margins, compact 44-point simple rows and grouped filling/login controls. Remove large page headings and filling/login descriptions; retain right-aligned native switches with Glance's blue accent.
+- Adapt Glance's measured tab-selection capsule and spring animation, including fading/sliding/blurred label reveal. Keep one scroll container across tab changes instead of rebuilding it.
+
+Validation: policy and prompt regression tests, optimized arm64 build, ad hoc signature and ZIP verification. Dock/Cmd-Tab behavior and final visual/animation quality require verification in the installed app. Saved preferences, face templates and password data remain compatible.
+
 # Faceprint 1.3.0 — test build
 
 - Make settings edits depend on the editing unlock, independently of the autofill enabled preference and automatic recognition activity. Fresh settings authentication remains required; saved face/password prerequisites still apply to enabling filling.

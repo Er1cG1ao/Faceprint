@@ -71,3 +71,14 @@ The Secure Enclave protects the private key used to derive a session key; user p
 Keep changes focused and describe the trigger, resulting behavior, validation, and remaining limits. File ordinary bugs through [Issues](https://github.com/Er1cG1ao/faceprint/issues), without private data. Do not make biometric security claims from input-filling tests or equate webcam recognition with Face ID.
 
 [MIT license](../LICENSE) · [Glance license](../LICENSE-Glance.txt) · [Third-party notices](../THIRD_PARTY_NOTICES.md)
+
+
+## Signed updates (1.5.0 development)
+
+Build with `FACEPRINT_SIGN_IDENTITY` set to the exact codesigning identity name or SHA-1 available in your keychain. The default `-` remains ad hoc for local builds; no private key or signing certificate is checked into the repository. The helper is signed with its own identifier before sealing the main app. Developer ID distribution additionally needs the normal Apple notarization/stapling workflow, which this local build does not perform. Use one compatible signing identity across versions; changing to a Developer ID identity from an ad hoc build is a one-time permission migration, not a way to carry the old TCC record forward. See [Apple TN3127](https://developer.apple.com/documentation/technotes/tn3127-inside-code-signing-requirements).
+
+Publish a stable `vX.Y.Z` GitHub Release with `Faceprint-X.Y.Z-macos-arm64.zip`; GitHub's asset metadata must include `digest: sha256:…`. `/releases/latest` is the only update feed. No arbitrary release-note URLs, scripts or appcasts are executed. Ad hoc development updates trust the repo's HTTPS asset metadata plus ZIP digest and validate the app seal/identifier. Signed installations additionally require compatible designated requirements both ways and refuse an unsigned or differently signed replacement.
+
+Run `bash test-update.sh ZIP NEW_APP [OLD_APP]` to check update policy, real archive paths, tampering and signature validity. With an older compatible app supplied, it installs copies inside a temporary Applications directory and verifies the recovery copy. It never invokes the production installer against the real Applications directory. `bash test.sh` runs recognition/prompt/authorization regressions.
+
+The helper copies the verified app onto the destination volume and uses `renameatx_np(RENAME_SWAP)` for atomic replacement. The original app stays as `.Faceprint-backup-UUID.app`; its path is reported on next launch. Failed swap leaves the old app in place. A failed `/usr/bin/open` relaunch command swaps back. A successful launch request does not prove the new app cannot crash later, so the recovery copy is retained. Installer receipts and temporary downloads live under the per-user Faceprint Updates cache. No administrator helper, TCC database access or permission resets are used.

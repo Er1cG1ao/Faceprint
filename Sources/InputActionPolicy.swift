@@ -83,3 +83,26 @@ struct FaceMatchGate {
         return consecutive >= 2
     }
 }
+
+/// One automatic retry per visible authentication request. Manual retry starts
+/// a new budget; a retry never reuses a face match or retries password delivery.
+struct AutomaticRetryBudget {
+    private var request: String?
+    private var spent = false
+    private var absentSince: TimeInterval?
+    mutating func observe(_ key: String) {
+        absentSince = nil
+        if request != key { request = key; spent = false }
+    }
+    mutating func observeAbsence(now: TimeInterval) {
+        if absentSince == nil { absentSince = now }
+        if now - (absentSince ?? now) >= 2 { reset() }
+    }
+    mutating func reset() { request = nil; spent = false; absentSince = nil }
+    mutating func claim(for key: String, enabled: Bool, recognitionFailed: Bool) -> Bool {
+        observe(key)
+        guard enabled, recognitionFailed, !spent else { return false }
+        spent = true
+        return true
+    }
+}

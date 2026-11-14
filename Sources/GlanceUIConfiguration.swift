@@ -12,17 +12,23 @@ enum UnlockAnimationStyle: String {
 final class GlanceSettings {
     static let shared = GlanceSettings()
     let faceDetectionSeconds = 12
-    let retryOnHover = true
+    var retryOnHover = UserDefaults.standard.object(forKey: "retryOnHover") as? Bool ?? true {
+        didSet { UserDefaults.standard.set(retryOnHover, forKey: "retryOnHover") }
+    }
     let hapticFeedbackEnabled = true
     var animationStyle: UnlockAnimationStyle {
         didSet { UserDefaults.standard.set(animationStyle.rawValue, forKey: "islandStyle") }
     }
-    var effectiveUnlockAnimationStyle: UnlockAnimationStyle { animationStyle }
+    var showAnimation = UserDefaults.standard.object(forKey: "showAnimation") as? Bool ?? true {
+        didSet { UserDefaults.standard.set(showAnimation, forKey: "showAnimation") }
+    }
+    var effectiveUnlockAnimationStyle: UnlockAnimationStyle { showAnimation ? animationStyle : .none }
     var preferredDisplayID: String? { nil }
 
     private init() {
         animationStyle = UserDefaults.standard.string(forKey: "islandStyle")
             .flatMap(UnlockAnimationStyle.init(rawValue:)) ?? .original
+        if animationStyle == .none { animationStyle = .original; showAnimation = false }
     }
 }
 
@@ -30,7 +36,10 @@ struct OnboardingNotchView: View {
     let controller: OnboardingController
 
     var body: some View {
-        EnrollStepView(controller: controller)
-            .frame(width: controller.panelSize.width, height: controller.panelSize.height)
+        Group {
+            if controller.step == .name { FaceNameStepView(controller: controller) }
+            else { EnrollStepView(controller: controller) }
+        }.frame(width: controller.panelSize.width, height: controller.panelSize.height)
+            .animation(OnboardingMetrics.stepAnimation, value: controller.step)
     }
 }
