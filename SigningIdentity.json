@@ -3,7 +3,9 @@
   "bundle_id": "io.github.er1cg1ao.faceprint",
   "team_id": "QKA3ST9DRU",
   "designated_requirement_sha256": "20f83b82d68c02b0415e00bf2db07733f9210bed1af047739683c9a947317f16",
-  "certificate_sha1": "AC3AD1EBFC9BB088CC0A5875DFF1607FFFFF6B92",
+  "certificate_sha1": "99F4562390898BB4980D2D36D1A5A05AECBC5938",
   "certificate_type": "Apple Development",
-  "note": "Public identity metadata only. Private signing keys remain in the owner's macOS keychain."
+  "note": "Public identity metadata only. Private signing keys remain in the owner's macOS keychain.",
+  "previous_certificate_sha1": "AC3AD1EBFC9BB088CC0A5875DFF1607FFFFF6B92",
+  "previous_certificate_status": "revoked; confirmed by owner in Xcode on 2026-11-17"
 }

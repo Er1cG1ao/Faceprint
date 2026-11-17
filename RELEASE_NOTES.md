@@ -1,3 +1,12 @@
+# Faceprint 1.6.2
+
+- Replace the revoked 1.6.1 Apple Development certificate with the owner's existing replacement identity (`99F4562390898BB4980D2D36D1A5A05AECBC5938`). App and installer use Team `QKA3ST9DRU`; the default designated requirement is unchanged. The reason for the old certificate's revocation is not established.
+- Reject revoked/expired/status-annotated identities even when `security find-identity -v` includes them in its valid count; pinned invalid identities stop without fallback. Add explicit output build-number selection and record the selected certificate fingerprint in signing reports.
+- Runtime functionality is unchanged from 1.6.0; package version 1.6.2 / build 38. Saved data format and locations are unchanged.
+- If 1.6.1 no longer launches, download the recovery ZIP and manually replace the app at its existing installation path. Permissions may need reauthorization. Do not disable system security checks to run a revoked build.
+
+Validation: owner-uploaded archive SHA-256 `3a8be54b0a31d6a064ff8258db5b9aeb854e657d8399a4c029e266bae085007c`; strict nested signatures, exact replacement certificate fingerprints, unchanged Team/designated requirement, unchanged resources/entitlements and executable payloads (excluding signature data and signing-only LINKEDIT reservation sizes); safe archive checks, tamper rejection and temporary 1.6.0 → 1.6.2 installation/recovery; five signing-selection regression tests. The signing key stayed on the owner's Mac. Native MacBook Gatekeeper acceptance, TCC permission retention and Secure Enclave behavior are not claimed as verified. This remains Apple Development signed, not Developer ID distribution signed or Apple-notarized.
+
 # Faceprint 1.6.1
 
 - Publish the owner-signed Apple Development package from the Mac holding the private key. Main app and installer share Team QKA3ST9DRU; the leaf certificate fingerprint matches the owner's confirmed certificate. No private key was exported or uploaded.

@@ -25,15 +25,15 @@
 
 使用 Swift、SwiftUI、AppKit、AVFoundation 和 Core ML 构建，人脸处理在本机完成。软件界面目前为英文，文档提供英文和简体中文。
 
-### 当前正式版：1.6.1
+### 当前正式版：1.6.2
 
-首个使用固定 **Apple Development** 身份签名的版本，功能与 1.6.0 相同，保留自动打开 v2 保险库、Cmd-W 以及悬停／自动重试修复。首次从临时签名迁移可能还需授权一次；后续更新必须保持兼容的签名身份。本版本为开发签名，**尚未经过 Apple 公证**。详见[版本说明](RELEASE_NOTES.md)和[教程](Docs/TUTORIAL.zh-CN.md)。
+旧版 1.6.1 的开发证书已被撤销，1.6.2 改用账号持有者的新 **Apple Development** 证书，保留相同 Team 和签名要求，功能与 1.6.0 相同。旧版无法启动时，请下载并在原安装位置手动替换；权限可能需要重新允许。本版本仍为开发签名，**尚未经过 Apple 公证**，MacBook 的正常安全放行与权限继承仍需安装验证。详见[版本说明](RELEASE_NOTES.md)和[教程](Docs/TUTORIAL.zh-CN.md)。
 
 ## 安装与开始使用
 
 需要 **Apple Silicon（M 系列）Mac、macOS 15 或更新版本**，目前不提供 Intel 安装包。
 
-1. 在 [最新发布页](https://github.com/Er1cG1ao/faceprint/releases/latest)的 **Assets** 中下载 `Faceprint-1.6.1-macos-arm64.zip`。
+1. 在 [最新发布页](https://github.com/Er1cG1ao/faceprint/releases/latest)的 **Assets** 中下载 `Faceprint-1.6.2-macos-arm64.zip`。
 2. 退出旧版，解压 ZIP，将 `Faceprint.app` 放入 **Applications（应用程序）**，然后再授权或启用开机自启。
 3. 打开 Faceprint，允许**摄像头**与**辅助功能**权限。点击 **Unlock session**，完成 macOS 身份验证。
 4. 在 **Camera** 选择摄像头，在 **Your Face** 按九方向引导录入人脸，在 **Password** 保存 Mac 登录密码。

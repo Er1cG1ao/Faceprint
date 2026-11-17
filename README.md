@@ -25,15 +25,15 @@ Built on [**Glance by Jonathan Zhou**](https://github.com/jonnyoo/glance), with 
 
 Built with Swift, SwiftUI, AppKit, AVFoundation, and Core ML. Face processing runs locally. The app interface currently uses English; documentation is available in English and Simplified Chinese.
 
-### Current release: 1.6.1
+### Current release: 1.6.2
 
-The first release signed with a fixed **Apple Development** identity. Runtime behavior is unchanged from 1.6.0: automatic v2 vault opening, Command-W, and hover/automatic retry fixes. The first upgrade from ad hoc signing may require one more permission grant; future updates must retain compatible signing identity. This is development-signed and **not Apple-notarized**. See [release notes](RELEASE_NOTES.md) and the [guide](Docs/TUTORIAL.md).
+Recovery release after the 1.6.1 development certificate was revoked. Version 1.6.2 uses the owner's replacement **Apple Development** certificate with the same Team and designated requirement; runtime behavior is unchanged from 1.6.0. If 1.6.1 cannot launch, download and replace it manually at the same installation path. Permissions may need reauthorization. This is development-signed and **not Apple-notarized**; MacBook Gatekeeper acceptance and permission retention still require installation testing. See [release notes](RELEASE_NOTES.md) and the [guide](Docs/TUTORIAL.md).
 
 ## Install and start
 
 Requires **Apple Silicon (M-series), macOS 15 or later**. Intel builds are not currently distributed.
 
-1. Download `Faceprint-1.6.1-macos-arm64.zip` from **Assets** on the [latest release](https://github.com/Er1cG1ao/faceprint/releases/latest).
+1. Download `Faceprint-1.6.2-macos-arm64.zip` from **Assets** on the [latest release](https://github.com/Er1cG1ao/faceprint/releases/latest).
 2. Quit the old version, extract the ZIP, and move `Faceprint.app` into **Applications** before granting permissions or enabling launch at login.
 3. Open Faceprint and allow **Camera** and **Accessibility** access. Click **Unlock session** and complete the macOS authentication request.
 4. Select your device in **Camera**, enroll from **Your Face**, and save your Mac login password in **Password**.
