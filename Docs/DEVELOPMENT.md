@@ -115,3 +115,17 @@ The local signing downloader uses `/usr/bin/curl` with normal TLS verification, 
 ## Published signing identity (1.6.1)
 
 SigningIdentity.json records only public identity metadata: Team ID, the reviewed leaf certificate fingerprint and the SHA-256 of the default designated requirement. SigningIdentityCheck enforces the Team and requirement hash before creating/updating a local baseline. Certificate renewal can be compatible if requirements stay unchanged; changing requirement type, team or account identity requires explicit review rather than silently updating the policy. Private keys stay on the signing Mac; the build Mac cannot sign merely by receiving a signed application. Public release artifacts after 1.6.1 must not regress to ad hoc signing.
+
+## Recovery after the 1.6.1 development certificate revocation
+
+The owner confirmed in Xcode that the November 14 certificate (`AC3AD1EBFC9BB088CC0A5875DFF1607FFFFF6B92`) is revoked. The reason is not established. A local `security find-identity -v` listing still included it under "valid identities" with a `CSSMERR_TP_CERT_REVOKED` annotation. The selector now excludes every annotated identity from usable candidates, including explicitly pinned revoked certificates; it never silently changes a configured identity.
+
+On the owner's signing Mac, explicitly select the replacement certificate already in its keychain. Prepare 1.6.2 / build 38 from the reviewed, hash-pinned 1.6.0 archive, avoiding the revoked 1.6.1 package as a source:
+
+```sh
+python3 Tools/sign-release-on-mac.py \
+  --identity 99F4562390898BB4980D2D36D1A5A05AECBC5938 \
+  --source-version 1.6.0 --version 1.6.2 --build-number 38
+```
+
+This is preparation, not a published 1.6.2 release. The replacement certificate and output app still require verification. Keep the existing public Team/designated-requirement policy and local baseline: if the replacement does not satisfy them, stop for identity review rather than deleting either guard. The report records the selected certificate fingerprint. A blocked 1.6.1 installation needs manual replacement with a verified recovery build; saved data should remain, but permissions may need reauthorization. No private key export, security bypass, certificate creation or revocation occurs in this workflow. Apple Development remains for development/testing and is not Developer ID notarized distribution.

@@ -11,11 +11,25 @@ import sys
 ROOT = Path(__file__).resolve().parents[1]
 CONFIG = ROOT / '.signing.local.json'
 
+def parse_identities(output, valid_only=True):
+    candidates = []
+    for line in output.splitlines():
+        match = re.fullmatch(r'\s*\d+\)\s+([0-9A-Fa-f]{40})\s+"([^"]+)"(.*)', line)
+        if not match:
+            continue
+        sha, name, status = match.groups()
+        # security -v can still list a revoked identity and count it as valid.
+        # Fail closed on every trailing status annotation, not only REVOKED.
+        if valid_only and status.strip():
+            continue
+        if name.startswith(('Apple Development:', 'Developer ID Application:')):
+            candidates.append((sha.upper(), name))
+    return candidates
+
 def identities(valid_only=True):
     result = subprocess.run(['/usr/bin/security', 'find-identity', *(['-v'] if valid_only else []), '-p', 'codesigning'],
                             check=True, text=True, capture_output=True)
-    return [(sha.upper(), name) for sha, name in re.findall(r'\b([0-9A-Fa-f]{40})\s+"([^"]+)"', result.stdout)
-            if name.startswith(('Apple Development:', 'Developer ID Application:'))]
+    return parse_identities(result.stdout, valid_only)
 
 def save(value):
     temporary = CONFIG.with_suffix('.json.tmp')

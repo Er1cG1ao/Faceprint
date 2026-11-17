@@ -111,6 +111,7 @@ def main():
     parser.add_argument('--identity', help='Existing certificate SHA-1 or exact name; required only if multiple identities exist')
     parser.add_argument('--source-version', help='GitHub source release; default is the latest stable release')
     parser.add_argument('--version', help='Output version; default increments the source patch version')
+    parser.add_argument('--build-number', type=int, help='Output build number; must exceed the source build')
     parser.add_argument('--output', type=Path, help='New output directory; default is a unique folder under Downloads')
     args = parser.parse_args()
     selector = ROOT / 'Tools/configure-signing.py'
@@ -171,7 +172,10 @@ def main():
         info = plistlib.loads((app / 'Contents/Info.plist').read_bytes())
         if info.get('CFBundleShortVersionString') != source or info.get('CFBundleIdentifier') != BUNDLE_ID:
             raise RuntimeError('Source bundle does not match the release')
-        build = int(info['CFBundleVersion']) + 1
+        source_build = int(info['CFBundleVersion'])
+        build = args.build_number if args.build_number is not None else source_build + 1
+        if build <= source_build:
+            raise RuntimeError('Output build number must be greater than the source build')
         stamp(app, target, build)
         sign(app, identity)
         baseline = ROOT / '.signing.requirement'
@@ -197,6 +201,7 @@ def main():
         run(checker, '--inspect-archive', final_zip)
         run('/usr/bin/codesign', '--verify', '--strict', '--deep', final_app)
         report = {'version': target, 'build': build, 'source_version': source,
+                  'signing_certificate_sha1': identity,
                   'source_sha256': expected[7:].lower(), 'archive': final_zip.name,
                   'sha256': hashlib.sha256(final_zip.read_bytes()).hexdigest(),
                   'size': final_zip.stat().st_size, 'cross_version_identity_verified': True,
@@ -205,7 +210,7 @@ def main():
         print('\nSIGNED PACKAGE READY: ' + str(final_zip))
         print('Two different versions passed mutual signature-identity checks.')
         print('No private key was exported. Send only the signed ZIP and optional report for release upload.')
-        print('The first ad hoc → certificate installation may still need one final permission grant.')
+        print('Installing after a signing change may require Camera/Accessibility authorization again.')
 
 if __name__ == '__main__':
     try:
