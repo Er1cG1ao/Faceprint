@@ -518,18 +518,15 @@ final class FillController: ObservableObject {
     private func handleTrigger(_ trigger: FillTrigger, replacesDismissedDialog: Bool = false) {
         let templates = FaceIdentityCollection(identities: identities)
         guard identities.contains(where: { $0.isEnabled }) else { return }
-        retryBudget.observe(trigger.requestKey)
         guard attemptGate.observe(trigger.requestKey, now: Date.timeIntervalSinceReferenceDate,
                                   replacesDismissedDialog: replacesDismissedDialog) else {
             let message = "Repeat suppressed until the previous dialog closes."
             if promptStatus != message { promptStatus = message }
             return
         }
-        promptStatus = "Starting scan for \(trigger.description)."
-        previousPrompt = nil
-        if replacesDismissedDialog { retryBudget.reset() }
-        attemptGate.mark(trigger.requestKey)
+        promptStatus = "Checking \(trigger.description) prompt."
         retryTask?.cancel(); retryTask = nil
+        retryAnchor = nil
         busy = true
         previewTask?.cancel(); previewTask = nil
         generation &+= 1
@@ -551,14 +548,11 @@ final class FillController: ObservableObject {
                 if self.busy { self.status = event }
             }
         }
-        status = "Looking for your face…"
-        if useAnimation {
-            NotchOverlayController.shared.present(onRetry: { [weak self] in self?.retry() })
-        } else { NotchOverlayController.shared.disarm() }
         let triggerAt = traceStart
         operation = Task { [self] in
             let taskAt = ProcessInfo.processInfo.systemUptime
             var attemptFailed = false
+            var startedScan = false
             var handedOff = false
             var keepingCameraWarm = false
             var anchor: PromptRetryAnchor?
@@ -574,9 +568,22 @@ final class FillController: ObservableObject {
                 guard promptCurrent else {
                     throw FillError.message("The original prompt is no longer open, focused, or empty.")
                 }
+                try Task.checkCancellation()
                 let checkedAt = ProcessInfo.processInfo.systemUptime
+                // Discovery alone does not consume the attempt. AX can briefly
+                // lose the focus or replace the control between two polls.
+                previousPrompt = nil
+                if replacesDismissedDialog { retryBudget.reset() }
+                retryBudget.observe(trigger.requestKey)
+                attemptGate.mark(trigger.requestKey)
+                startedScan = true
                 stage = "Starting camera"
                 async let cameraReady = camera.start(deviceID: deviceID, requested: requested)
+                promptStatus = "Starting scan for \(trigger.description)."
+                status = "Looking for your face…"
+                if useAnimation {
+                    NotchOverlayController.shared.present(onRetry: { [weak self] in self?.retry() })
+                } else { NotchOverlayController.shared.disarm() }
                 let snapshot = try await performPromptWork { (PromptRetryAnchor(trigger), PreviousPrompt(trigger: trigger)) }
                 try Task.checkCancellation()
                 anchor = snapshot.0
@@ -724,11 +731,12 @@ final class FillController: ObservableObject {
                     attemptFailed = true
                     if developerMode { readout.result = "Stopped — \(stage)"; readout.reason = reason }
                     record("Stopped during \(stage): \(reason)")
-                    if useAnimation { NotchOverlayController.shared.finish(success: false) }
+                    if !startedScan { promptStatus = "Prompt changed before scanning. Watching for a valid prompt." }
+                    if startedScan && useAnimation { NotchOverlayController.shared.finish(success: false) }
                 }
             }
             if generation == currentGeneration {
-                if !keepingCameraWarm || attemptFailed || Task.isCancelled { camera.stop() }
+                if startedScan && (!keepingCameraWarm || attemptFailed || Task.isCancelled) { camera.stop() }
                 busy = false
                 operation = nil
                 if !useAnimation {
