@@ -33,6 +33,10 @@ final class Camera: NSObject, AVCaptureVideoDataOutputSampleBufferDelegate, @unc
     private let frameLock = NSLock()
     private let controlLock = NSLock()
     private var generation: UInt64 = 0
+    static let warmHoldSeconds = 5
+    private var warmUntil: DispatchTime?
+    private var acceptingFrames = false
+    private var minimumPTS: CMTime?
     private var firstArrival: TimeInterval?
     private var previousPTS: Double?
     private var configuredResolution: CaptureResolution?
@@ -120,12 +124,34 @@ final class Camera: NSObject, AVCaptureVideoDataOutputSampleBufferDelegate, @unc
                     let device = (deviceID.isEmpty ? nil : AVCaptureDevice(uniqueID: deviceID)) ?? AVCaptureDevice.default(for: .video)
                     guard let device else { throw FillError.message("No camera is available.") }
                     let deviceReady = ProcessInfo.processInfo.systemUptime
+                    self.minimumPTS = nil
+                    if self.session.isRunning {
+                        // During reuse, callbacks may already be queued for frames
+                        // captured before the new request. Compare in the camera clock.
+                        guard let clock = self.session.synchronizationClock else {
+                            throw FillError.message("Camera timing is unavailable. Try again.")
+                        }
+                        let boundary = CMClockGetTime(clock)
+                        guard boundary.isNumeric else {
+                            throw FillError.message("Camera timing is unavailable. Try again.")
+                        }
+                        self.minimumPTS = boundary
+                        if let deadline = self.warmUntil, DispatchTime.now() >= deadline {
+                            self.session.stopRunning()
+                        }
+                    }
+                    self.warmUntil = nil
+                    self.clearFrame()
                     func beginDelivery(reused: Bool) throws -> CameraStartupTiming {
                         let startNeeded = !self.session.isRunning
                         let before = ProcessInfo.processInfo.systemUptime
                         if startNeeded { self.session.startRunning() }
                         let after = ProcessInfo.processInfo.systemUptime
-                        guard self.session.isRunning else { throw FillError.message("Camera did not start.") }
+                        guard self.session.isRunning, self.isCurrent(token) else {
+                            if !self.isCurrent(token) { throw CancellationError() }
+                            throw FillError.message("Camera did not start.")
+                        }
+                        self.acceptingFrames = true
                         return CameraStartupTiming(entered: entered, queued: queued, dequeued: dequeued,
                             deviceReady: deviceReady, startRunningAt: before, runningAt: after,
                             reused: reused, calledStartRunning: startNeeded)
@@ -184,23 +210,46 @@ final class Camera: NSObject, AVCaptureVideoDataOutputSampleBufferDelegate, @unc
         frameLock.unlock()
     }
 
-    func stop() {
+    func stop(keepWarm: Bool = false) {
         let token = nextGeneration()
+        let deadline = DispatchTime.now() + .seconds(Self.warmHoldSeconds)
         clearFrame()
-        queue.async {
+        queue.async { [self] in
             guard self.isCurrent(token) else { return }
-            self.session.stopRunning()
-            self.frameLock.lock()
-            self.frame = nil
-            self.frameLock.unlock()
+            self.acceptingFrames = false
+            self.clearFrame()
+            guard keepWarm, self.session.isRunning else {
+                self.stopSession()
+                return
+            }
+            self.warmUntil = deadline
+            self.queue.asyncAfter(deadline: deadline) { [weak self] in
+                guard let self, self.warmUntil == deadline else { return }
+                self.stopSession()
+            }
         }
+    }
+
+    func endWarmHold() {
+        queue.async {
+            if self.warmUntil != nil { self.stopSession() }
+        }
+    }
+
+    private func stopSession() {
+        acceptingFrames = false
+        warmUntil = nil
+        if session.isRunning { session.stopRunning() }
+        clearFrame()
     }
 
     func captureOutput(_ output: AVCaptureOutput, didOutput sampleBuffer: CMSampleBuffer, from connection: AVCaptureConnection) {
         let arrival = firstArrival ?? ProcessInfo.processInfo.systemUptime
-        guard output === configuredOutput, let device = configuredDevice, let requested = configuredResolution,
+        guard acceptingFrames, output === configuredOutput, let device = configuredDevice, let requested = configuredResolution,
               let buffer = CMSampleBufferGetImageBuffer(sampleBuffer) else { return }
-        let pts = CMSampleBufferGetPresentationTimeStamp(sampleBuffer).seconds
+        let timestamp = CMSampleBufferGetPresentationTimeStamp(sampleBuffer)
+        if let minimumPTS, !timestamp.isNumeric || CMTimeCompare(timestamp, minimumPTS) <= 0 { return }
+        let pts = timestamp.seconds
         let fps = previousPTS.flatMap { pts > $0 ? 1 / (pts - $0) : nil }
         previousPTS = pts
         frameLock.lock()

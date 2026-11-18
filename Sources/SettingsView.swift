@@ -503,6 +503,9 @@ struct SetupView: View {
                     }.labelsHidden().fixedSize().disabled(!canEdit)
                 }
                 rowDivider
+                toggleRow("Keep camera warm", detail: "Keep the camera on for up to 5 seconds after a face match. The camera light stays on.",
+                          isOn: Binding(get: { controller.keepCameraWarm }, set: controller.setKeepCameraWarm))
+                rowDivider
                 toggleRow("Developer Mode", detail: "Show measurements from the latest recognition attempt.",
                           isOn: Binding(get: { controller.developerMode }, set: controller.setDeveloperMode))
             }
