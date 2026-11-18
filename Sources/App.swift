@@ -403,6 +403,7 @@ final class FillController: ObservableObject {
         let currentGeneration = generation
         status = "Follow the nine-direction guide in the Dynamic Island."
         let deviceID = cameraID
+        let requested = captureResolution
         operation = Task {
             do {
                 let recognizer = try await getRecognizer()
@@ -410,7 +411,7 @@ final class FillController: ObservableObject {
                 var captured: FaceTemplate?
                 var capturedName: String?
                 while captured == nil {
-                    let saved = try await enrollment.capture(using: recognizer, deviceID: deviceID)
+                    let saved = try await enrollment.capture(using: recognizer, deviceID: deviceID, requested: requested)
                     try Task.checkCancellation()
                     if identityID == nil {
                         do {
@@ -514,6 +515,7 @@ final class FillController: ObservableObject {
         let useAutoRetry = autoRetryOnce
         let useAutomaticReturn = autoSubmit
         let deviceID = cameraID
+        let requested = captureResolution
         traceStart = ProcessInfo.processInfo.systemUptime
         diagnosticTrace = ""
         if developerMode { readout = DeveloperReadout() }
@@ -534,11 +536,11 @@ final class FillController: ObservableObject {
             var handedOff = false
             var anchor: PromptRetryAnchor?
             do {
+                guard try await performPromptWork({ trigger.isCurrent() }) else { throw CancellationError() }
+                async let cameraReady = camera.timedStart(deviceID: deviceID, requested: requested)
                 anchor = try await performPromptWork { PromptRetryAnchor(trigger) }
                 retryAnchor = anchor
                 retryHandoffStarted = false
-                guard try await performPromptWork({ trigger.isCurrent() }) else { throw CancellationError() }
-                async let cameraReady = camera.timedStart(deviceID: deviceID)
                 let recognizer = try await getRecognizer()
                 let cameraElapsed = try await cameraReady
                 if developerMode { readout.cameraStart = cameraElapsed }
@@ -551,16 +553,22 @@ final class FillController: ObservableObject {
                 var lastFrame: UInt64?
                 var receivedFirstFrame = false
                 let deadline = Date().addingTimeInterval(12)
+                var nextIdlePromptCheck = ProcessInfo.processInfo.systemUptime + 0.1
                 var filled = false
                 while Date() < deadline {
                     try Task.checkCancellation()
+                    guard let frame = camera.latestFrame(), frame.id != lastFrame else {
+                        if ProcessInfo.processInfo.systemUptime >= nextIdlePromptCheck {
+                            guard try await performPromptWork({ trigger.isCurrent() }) else { throw CancellationError() }
+                            nextIdlePromptCheck = ProcessInfo.processInfo.systemUptime + 0.1
+                        }
+                        try await Task.sleep(nanoseconds: 6_000_000)
+                        continue
+                    }
                     guard try await performPromptWork({ trigger.isCurrent() }) else {
                         throw FillError.message("Prompt changed. Return to the supported prompt and hover the island to retry.")
                     }
-                    guard let frame = camera.latestFrame(), frame.id != lastFrame else {
-                        try await Task.sleep(nanoseconds: 30_000_000)
-                        continue
-                    }
+                    nextIdlePromptCheck = ProcessInfo.processInfo.systemUptime + 0.1
                     lastFrame = frame.id
                     if !receivedFirstFrame {
                         record("First camera frame received (\(frame.resolution.label))")
@@ -568,7 +576,7 @@ final class FillController: ObservableObject {
                         receivedFirstFrame = true
                     }
                     let inferenceStart = ProcessInfo.processInfo.systemUptime
-                    let scan = try await performPromptWork { try recognizer.recognize(frame.buffer, includeQuality: usePhotoChecks) }
+                    let scan = try await performPromptWork { try recognizer.recognize(frame.buffer, sourceScale: frame.sourceScale, includeQuality: usePhotoChecks) }
                     let result = scan.result
                     let score = result.flatMap { templates.score($0.embedding) }
                     try Task.checkCancellation()

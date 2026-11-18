@@ -101,7 +101,7 @@ final class Recognizer: @unchecked Sendable {
         }
     }
 
-    func recognize(_ buffer: CVPixelBuffer, enrollment: Bool = false, includeQuality: Bool = true) throws -> ScanMeasurement {
+    func recognize(_ buffer: CVPixelBuffer, sourceScale: CGFloat, enrollment: Bool = false, includeQuality: Bool = true) throws -> ScanMeasurement {
         var scan = ScanMeasurement()
         let start = ProcessInfo.processInfo.systemUptime
         let faces = try FaceDetector.detectFaces(in: buffer, includeQuality: includeQuality)
@@ -120,8 +120,8 @@ final class Recognizer: @unchecked Sendable {
         scan.alignment = alignedAt - detected
         scan.tier = aligned.tier
         let eyes = face.landmarks.flatMap { LandmarkGeometry.interocularDistance(from: $0, imageSize: face.imageSize) }
-        if !enrollment, let rejection = DistancePolicy.rejection(width: face.boundingBox.width,
-            fraction: face.normalizedBoundingBox.width, quality: face.quality, tier: aligned.tier, eyeDistance: eyes) {
+        if !enrollment, let rejection = DistancePolicy.rejection(width: face.boundingBox.width * sourceScale,
+            fraction: face.normalizedBoundingBox.width, quality: face.quality, tier: aligned.tier, eyeDistance: eyes.map { $0 * sourceScale }) {
             scan.reason = rejection
             return scan
         }

@@ -13,6 +13,11 @@ struct CaptureResolution: Hashable, Comparable {
         if available.contains(requested) { return requested }
         return available.filter { $0.width <= requested.width && $0.height <= requested.height }.max() ?? available.min()
     }
+    // Output scaling must never increase the source pixel budget of a face.
+    func sourceScale(delivered: Self) -> CGFloat {
+        min(1, CGFloat(width) / CGFloat(delivered.width), CGFloat(height) / CGFloat(delivered.height))
+    }
+
     static var preference: Self {
         let parts = UserDefaults.standard.string(forKey: "captureResolution")?.split(separator: "×")
         guard let parts, parts.count == 2, let w = Int(parts[0]), let h = Int(parts[1]),

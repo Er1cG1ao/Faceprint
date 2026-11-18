@@ -12,11 +12,14 @@ enum FillError: LocalizedError {
 struct CameraFrame {
     let firstArrival: TimeInterval
     let id: UInt64
+    let requested: CaptureResolution
+    let active: CaptureResolution
     let buffer: CVPixelBuffer
     let fps: Double?
     var resolution: CaptureResolution {
         CaptureResolution(width: CVPixelBufferGetWidth(buffer), height: CVPixelBufferGetHeight(buffer))
     }
+    var sourceScale: CGFloat { active.sourceScale(delivered: resolution) }
     private static let context = CIContext(options: [.cacheIntermediates: false])
     var image: CGImage? {
         let ci = CIImage(cvPixelBuffer: buffer)
@@ -35,7 +38,8 @@ final class Camera: NSObject, AVCaptureVideoDataOutputSampleBufferDelegate, @unc
     private var configuredResolution: CaptureResolution?
     private var frame: CameraFrame?
     private var frameID: UInt64 = 0
-    private var configuredDeviceID: String?
+    private var configuredDevice: AVCaptureDevice?
+    private weak var configuredOutput: AVCaptureVideoDataOutput?
 
     private func nextGeneration() -> UInt64 {
         controlLock.lock()
@@ -68,36 +72,40 @@ final class Camera: NSObject, AVCaptureVideoDataOutputSampleBufferDelegate, @unc
         return CaptureResolution(width: Int(dimensions.width), height: Int(dimensions.height))
     }
 
-    private func configureResolution(_ requested: CaptureResolution, device: AVCaptureDevice) {
+    private func configureResolution(_ requested: CaptureResolution, device: AVCaptureDevice) throws -> CaptureResolution {
         let formats = device.formats
-        if let selected = CaptureResolution.select(requested, from: formats.map(Self.size)),
-           let format = formats.filter({ Self.size(of: $0) == selected }).max(by: {
-               preferredRate($0) < preferredRate($1)
-           }), (try? device.lockForConfiguration()) != nil {
-            defer { device.unlockForConfiguration() }
-            device.activeFormat = format
-            if format.videoSupportedFrameRateRanges.contains(where: { $0.minFrameRate <= 30 && $0.maxFrameRate >= 30 }) {
-                device.activeVideoMinFrameDuration = CMTime(value: 1, timescale: 30)
-            }
-            return
+        guard let selected = CaptureResolution.select(requested, from: formats.map(Self.size)),
+              let format = formats.filter({ Self.size(of: $0) == selected }).max(by: {
+                  preferredRate($0) < preferredRate($1)
+              }) else { throw FillError.message("This camera has no usable video format.") }
+
+        // On macOS the session preset can renegotiate the device format at commit.
+        // Use a matching preset where available, and explicitly size the output below.
+        let presets: [CaptureResolution: AVCaptureSession.Preset] = [
+            .hd: .hd1920x1080, CaptureResolution.standard[1]: .hd1280x720,
+            CaptureResolution.standard[0]: .vga640x480]
+        if let preset = presets[selected], session.canSetSessionPreset(preset) {
+            session.sessionPreset = preset
         }
-        let presets: [(CaptureResolution, AVCaptureSession.Preset)] = [
-            (.hd, .hd1920x1080), (CaptureResolution.standard[1], .hd1280x720),
-            (CaptureResolution.standard[0], .vga640x480)]
-        if let preset = presets.first(where: { $0.0 <= requested && session.canSetSessionPreset($0.1) }) {
-            session.sessionPreset = preset.1
-        } else if session.canSetSessionPreset(.high) { session.sessionPreset = .high }
+        try device.lockForConfiguration()
+        defer { device.unlockForConfiguration() }
+        device.activeFormat = format
+        if format.videoSupportedFrameRateRanges.contains(where: { $0.minFrameRate <= 30 && $0.maxFrameRate >= 30 }) {
+            device.activeVideoMinFrameDuration = CMTime(value: 1, timescale: 30)
+        }
+        return selected
     }
 
     private func preferredRate(_ format: AVCaptureDevice.Format) -> Double {
         min(30, format.videoSupportedFrameRateRanges.map(\.maxFrameRate).max() ?? 0)
     }
 
-    func start(deviceID: String) async throws {
+    func start(deviceID: String, requested: CaptureResolution) async throws {
         let token = nextGeneration()
         clearFrame()
-        let requested = CaptureResolution.preference
-        let allowed = await AVCaptureDevice.requestAccess(for: .video)
+        let allowed: Bool
+        if AVCaptureDevice.authorizationStatus(for: .video) == .authorized { allowed = true }
+        else { allowed = await AVCaptureDevice.requestAccess(for: .video) }
         try Task.checkCancellation()
         guard allowed else { throw FillError.message("Allow Camera access in System Settings, then try again.") }
         try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
@@ -105,18 +113,19 @@ final class Camera: NSObject, AVCaptureVideoDataOutputSampleBufferDelegate, @unc
                 var configuring = false
                 do {
                     guard self.isCurrent(token) else { throw CancellationError() }
-                    let device = Self.devices.first { $0.uniqueID == deviceID } ?? AVCaptureDevice.default(for: .video)
+                    let device = (deviceID.isEmpty ? nil : AVCaptureDevice(uniqueID: deviceID)) ?? AVCaptureDevice.default(for: .video)
                     guard let device else { throw FillError.message("No camera is available.") }
                     self.previousPTS = nil
                     self.firstArrival = nil
-                    if self.configuredResolution == requested, self.configuredDeviceID == device.uniqueID, !self.session.inputs.isEmpty {
+                    if self.configuredResolution == requested, self.configuredDevice?.uniqueID == device.uniqueID, !self.session.inputs.isEmpty {
                         if !self.session.isRunning { self.session.startRunning() }
                         guard self.session.isRunning else { throw FillError.message("Camera did not start.") }
                         continuation.resume()
                         return
                     }
                     if self.session.isRunning { self.session.stopRunning() }
-                    self.configuredDeviceID = nil
+                    self.configuredDevice = nil
+                    self.configuredOutput = nil
                     self.clearFrame()
                     self.session.beginConfiguration()
                     configuring = true
@@ -130,18 +139,22 @@ final class Camera: NSObject, AVCaptureVideoDataOutputSampleBufferDelegate, @unc
                     output.setSampleBufferDelegate(self, queue: self.queue)
                     guard self.session.canAddOutput(output) else { throw FillError.message("Cannot read camera frames.") }
                     self.session.addOutput(output)
-                    self.configureResolution(requested, device: device)
+                    let selected = try self.configureResolution(requested, device: device)
                     let native = CMFormatDescriptionGetMediaSubType(device.activeFormat.formatDescription)
                     let supported = output.availableVideoPixelFormatTypes
                     let choices = [native, kCVPixelFormatType_420YpCbCr8BiPlanarFullRange,
                                    kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange, kCVPixelFormatType_32BGRA]
+                    var settings: [String: Any] = [kCVPixelBufferWidthKey as String: selected.width,
+                                                    kCVPixelBufferHeightKey as String: selected.height]
                     if let type = choices.first(where: supported.contains) {
-                        output.videoSettings = [kCVPixelBufferPixelFormatTypeKey as String: type]
+                        settings[kCVPixelBufferPixelFormatTypeKey as String] = type
                     }
+                    output.videoSettings = settings
                     self.session.commitConfiguration()
                     configuring = false
                     self.configuredResolution = requested
-                    self.configuredDeviceID = device.uniqueID
+                    self.configuredDevice = device
+                    self.configuredOutput = output
                     guard self.isCurrent(token) else { throw CancellationError() }
                     self.session.startRunning()
                     guard self.session.isRunning else { throw FillError.message("Camera did not start.") }
@@ -173,7 +186,8 @@ final class Camera: NSObject, AVCaptureVideoDataOutputSampleBufferDelegate, @unc
     }
 
     func captureOutput(_ output: AVCaptureOutput, didOutput sampleBuffer: CMSampleBuffer, from connection: AVCaptureConnection) {
-        guard let buffer = CMSampleBufferGetImageBuffer(sampleBuffer) else { return }
+        guard output === configuredOutput, let device = configuredDevice, let requested = configuredResolution,
+              let buffer = CMSampleBufferGetImageBuffer(sampleBuffer) else { return }
         let pts = CMSampleBufferGetPresentationTimeStamp(sampleBuffer).seconds
         let fps = previousPTS.flatMap { pts > $0 ? 1 / (pts - $0) : nil }
         previousPTS = pts
@@ -181,21 +195,23 @@ final class Camera: NSObject, AVCaptureVideoDataOutputSampleBufferDelegate, @unc
         frameID &+= 1
         let first = firstArrival ?? ProcessInfo.processInfo.systemUptime
         firstArrival = first
-        frame = CameraFrame(firstArrival: first, id: frameID, buffer: buffer, fps: fps)
+        frame = CameraFrame(firstArrival: first, id: frameID, requested: requested, active: Self.size(of: device.activeFormat), buffer: buffer, fps: fps)
         frameLock.unlock()
     }
 }
 
 extension Camera {
-    func timedStart(deviceID: String) async throws -> Double {
+    func timedStart(deviceID: String, requested: CaptureResolution) async throws -> Double {
         let start = ProcessInfo.processInfo.systemUptime
-        try await self.start(deviceID: deviceID)
+        try await self.start(deviceID: deviceID, requested: requested)
         return ProcessInfo.processInfo.systemUptime - start
     }
 }
 
 // Scalar measurements only. Kept in memory for the latest attempt.
 struct DeveloperReadout {
+    var requested: CaptureResolution?
+    var active: CaptureResolution?
     var resolution: CaptureResolution?
     var fps: Double?
     var box: CGRect?
@@ -212,6 +228,8 @@ struct DeveloperReadout {
     var reason: String?
 
     mutating func observe(_ frame: CameraFrame, _ scan: ScanMeasurement, score: Float?) {
+        requested = frame.requested
+        active = frame.active
         resolution = frame.resolution
         fps = frame.fps
         box = scan.box
@@ -227,7 +245,9 @@ struct DeveloperReadout {
     var rows: [(String, String)] {
         func ms(_ value: Double?) -> String { value.map { String(format: "%.1f ms", $0 * 1000) } ?? "—" }
         return [
-            ("Camera resolution", resolution?.label ?? "—"),
+            ("Requested resolution", requested?.label ?? "—"),
+            ("Active camera format", active?.label ?? "—"),
+            ("Delivered resolution", resolution?.label ?? "—"),
             ("Actual FPS", fps.map { String(format: "%.1f", $0) } ?? "—"),
             ("Face bounding box (x, y, w, h)", box.map { String(format: "%.0f, %.0f, %.0f, %.0f", $0.minX, $0.minY, $0.width, $0.height) } ?? "—"),
             ("Face width", box.flatMap { b in resolution.map { String(format: "%.0f px · %.1f%%", b.width, 100 * b.width / CGFloat($0.width)) } } ?? "—"),

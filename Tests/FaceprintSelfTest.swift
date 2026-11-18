@@ -12,6 +12,12 @@ enum FaceprintSelfTest {
         precondition(CaptureResolution.select(.hd, from: [fourMP]) == fourMP)
         precondition(CaptureResolution.select(fourMP, from: [.hd, fourMP]) == fourMP)
         precondition(CaptureResolution.select(.hd, from: []) == nil)
+        for size in CaptureResolution.standard + [fourMP] {
+            precondition(CaptureResolution.select(size, from: CaptureResolution.standard + [fourMP]) == size)
+            precondition(size.sourceScale(delivered: size) == 1)
+        }
+        precondition(hd720.sourceScale(delivered: .hd) == CGFloat(2) / 3)
+        precondition(CaptureResolution.hd.sourceScale(delivered: hd720) == 1)
         precondition(DistancePolicy.faceCountRejection(2) != nil && DistancePolicy.faceCountRejection(0) != nil)
         func admitted(_ width: CGFloat, _ fraction: CGFloat, _ q: Float?, _ tier: AlignmentTier, _ eyes: CGFloat?) -> Bool {
             DistancePolicy.rejection(width: width, fraction: fraction, quality: q, tier: tier, eyeDistance: eyes) == nil

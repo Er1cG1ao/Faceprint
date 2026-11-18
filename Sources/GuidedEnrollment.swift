@@ -102,7 +102,7 @@ final class OnboardingController {
         NotchOverlayController.shared.dismissOnboarding()
     }
 
-    func capture(using recognizer: Recognizer, deviceID: String) async throws -> FaceTemplate {
+    func capture(using recognizer: Recognizer, deviceID: String, requested: CaptureResolution) async throws -> FaceTemplate {
         withAnimation(OnboardingMetrics.stepAnimation) { step = .enroll }
         currentPoseIndex = 0
         capturedPoses = []
@@ -117,7 +117,7 @@ final class OnboardingController {
         excessiveTurn = false
         isTooFar = false
         NotchOverlayController.shared.presentOnboarding(self)
-        try await camera.start(deviceID: deviceID)
+        try await camera.start(deviceID: deviceID, requested: requested)
         try Task.checkCancellation()
         guideVisible = true
         sweepWindow.present(for: self)
@@ -142,7 +142,7 @@ final class OnboardingController {
             }
             lastFrame = frame.id
             let result = try await Task.detached {
-                try recognizer.recognize(frame.buffer, enrollment: true).result
+                try recognizer.recognize(frame.buffer, sourceScale: frame.sourceScale, enrollment: true).result
             }.value
             try Task.checkCancellation()
             guard let result, let yaw = result.face.yaw, let pitch = result.face.pitch else {
@@ -154,7 +154,7 @@ final class OnboardingController {
             faceDetected = true
             currentYaw = yaw
             currentPitch = pitch
-            isTooFar = result.face.normalizedBoundingBox.width < 0.2 || result.face.boundingBox.width < 128
+            isTooFar = result.face.normalizedBoundingBox.width < 0.2 || result.face.boundingBox.width * frame.sourceScale < 128
             excessiveTurn = abs(yaw) >= 0.51 || abs(pitch) >= 0.37
             let poseOK = EnrollmentPoseMatcher.matches(yaw: yaw, pitch: pitch, pose: pose,
                                                        widened: Date().timeIntervalSince(poseStartedAt) > 12)
