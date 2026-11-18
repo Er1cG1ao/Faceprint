@@ -206,7 +206,7 @@ struct NotchOverlayView: View {
     /// Success and failure both leave `.scanning`, ending the pulse so the resolve
     /// animation plays against steady content.
     private var isScanning: Bool {
-        controller.phase == .scanning && !controller.faceIsMatched
+        controller.phase == .scanning
     }
 
     private var scanPulseScale: CGFloat {
@@ -221,12 +221,7 @@ struct NotchOverlayView: View {
     /// whole panel — hence passing it into `MinimalUnlockView` rather than wrapping `Group`.
     @ViewBuilder
     private var scanContent: some View {
-        if controller.phase == .scanning && controller.faceIsMatched {
-            ProgressView()
-                .controlSize(.small)
-                .tint(.white)
-                .accessibilityLabel("Waiting for password prompt")
-        } else if isMinimalScan {
+        if isMinimalScan {
             MinimalUnlockView(
                 media: controller.media,
                 isUnlocked: isMinimalLockOpen,

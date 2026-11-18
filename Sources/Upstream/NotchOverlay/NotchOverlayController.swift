@@ -51,7 +51,6 @@ final class NotchOverlayController {
     }
 
     private(set) var phase: Phase = .closed
-    private(set) var faceIsMatched = false
     private(set) var content: Content = .scan(.idle)
     /// Read-only convenience for the scan-mode view/callers — `.idle` while
     /// onboarding owns the panel.
@@ -217,14 +216,8 @@ final class NotchOverlayController {
     ///
     /// - Parameter styleOverride: forces `.minimal`/`.original` regardless of the saved
     ///   preference, for the Animation section's live preview.
-    func faceRecognized() {
-        guard phase == .scanning else { return }
-        faceIsMatched = true
-    }
-
     func present(styleOverride: UnlockAnimationStyle? = nil, onRetry: (() -> Void)? = nil) {
         isArmed = false
-        faceIsMatched = false
         onActivate = onRetry
         resolveTask?.cancel(); resolveTask = nil
         scanTimeoutTask?.cancel(); scanTimeoutTask = nil
@@ -282,7 +275,6 @@ final class NotchOverlayController {
     /// collapses on its own; failure plays its animation and holds until
     /// either the hold expires or the user hovers to retry.
     func finish(success: Bool) {
-        faceIsMatched = false
         resolveTask?.cancel()
         scanTimeoutTask?.cancel()
         // A one-shot failure is hoverable during its animation, then hides.

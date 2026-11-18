@@ -674,7 +674,6 @@ final class FillController: ObservableObject {
                     record("Enrolled face matched on two distinct frames")
                     handedOff = true
                     retryHandoffStarted = true
-                    if useAnimation { NotchOverlayController.shared.faceRecognized() }
                     status = trigger.isBiometric ? "Face recognized. Waiting for the password field to focus…" : "Face recognized. Filling the password field…"
                     stage = "Checking password field"
                     let target = try await performPromptWork { try await trigger.passwordTargetAfterRecognition(progress: report) }
