@@ -531,19 +531,25 @@ final class FillController: ObservableObject {
         if useAnimation {
             NotchOverlayController.shared.present(onRetry: { [weak self] in self?.retry() })
         } else { NotchOverlayController.shared.disarm() }
+        let triggerAt = traceStart
         operation = Task { [self] in
+            let taskAt = ProcessInfo.processInfo.systemUptime
             var attemptFailed = false
             var handedOff = false
             var anchor: PromptRetryAnchor?
             do {
                 guard try await performPromptWork({ trigger.isCurrent() }) else { throw CancellationError() }
-                async let cameraReady = camera.timedStart(deviceID: deviceID, requested: requested)
+                let checkedAt = ProcessInfo.processInfo.systemUptime
+                async let cameraReady = camera.start(deviceID: deviceID, requested: requested)
                 anchor = try await performPromptWork { PromptRetryAnchor(trigger) }
                 retryAnchor = anchor
                 retryHandoffStarted = false
                 let recognizer = try await getRecognizer()
-                let cameraElapsed = try await cameraReady
-                if developerMode { readout.cameraStart = cameraElapsed }
+                let startup = try await cameraReady
+                try Task.checkCancellation()
+                if developerMode {
+                    readout.startupPhases = startup.phases(trigger: triggerAt, task: taskAt, checked: checkedAt, firstFrame: nil)
+                }
                 record("Camera and recognition model ready")
                 try Task.checkCancellation()
                 let liveness = LivenessAnalyzer()
@@ -572,7 +578,10 @@ final class FillController: ObservableObject {
                     lastFrame = frame.id
                     if !receivedFirstFrame {
                         record("First camera frame received (\(frame.resolution.label))")
-                        if developerMode { readout.firstFrame = frame.firstArrival - traceStart }
+                        if developerMode {
+                            readout.firstFrame = frame.firstArrival - triggerAt
+                            readout.startupPhases = startup.phases(trigger: triggerAt, task: taskAt, checked: checkedAt, firstFrame: frame.firstArrival)
+                        }
                         receivedFirstFrame = true
                     }
                     let inferenceStart = ProcessInfo.processInfo.systemUptime

@@ -100,7 +100,9 @@ final class Camera: NSObject, AVCaptureVideoDataOutputSampleBufferDelegate, @unc
         min(30, format.videoSupportedFrameRateRanges.map(\.maxFrameRate).max() ?? 0)
     }
 
-    func start(deviceID: String, requested: CaptureResolution) async throws {
+    @discardableResult
+    func start(deviceID: String, requested: CaptureResolution) async throws -> CameraStartupTiming {
+        let entered = ProcessInfo.processInfo.systemUptime
         let token = nextGeneration()
         clearFrame()
         let allowed: Bool
@@ -108,19 +110,30 @@ final class Camera: NSObject, AVCaptureVideoDataOutputSampleBufferDelegate, @unc
         else { allowed = await AVCaptureDevice.requestAccess(for: .video) }
         try Task.checkCancellation()
         guard allowed else { throw FillError.message("Allow Camera access in System Settings, then try again.") }
-        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
+        return try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<CameraStartupTiming, Error>) in
+            let queued = ProcessInfo.processInfo.systemUptime
             queue.async {
+                let dequeued = ProcessInfo.processInfo.systemUptime
                 var configuring = false
                 do {
                     guard self.isCurrent(token) else { throw CancellationError() }
                     let device = (deviceID.isEmpty ? nil : AVCaptureDevice(uniqueID: deviceID)) ?? AVCaptureDevice.default(for: .video)
                     guard let device else { throw FillError.message("No camera is available.") }
+                    let deviceReady = ProcessInfo.processInfo.systemUptime
+                    func beginDelivery(reused: Bool) throws -> CameraStartupTiming {
+                        let startNeeded = !self.session.isRunning
+                        let before = ProcessInfo.processInfo.systemUptime
+                        if startNeeded { self.session.startRunning() }
+                        let after = ProcessInfo.processInfo.systemUptime
+                        guard self.session.isRunning else { throw FillError.message("Camera did not start.") }
+                        return CameraStartupTiming(entered: entered, queued: queued, dequeued: dequeued,
+                            deviceReady: deviceReady, startRunningAt: before, runningAt: after,
+                            reused: reused, calledStartRunning: startNeeded)
+                    }
                     self.previousPTS = nil
                     self.firstArrival = nil
                     if self.configuredResolution == requested, self.configuredDevice?.uniqueID == device.uniqueID, !self.session.inputs.isEmpty {
-                        if !self.session.isRunning { self.session.startRunning() }
-                        guard self.session.isRunning else { throw FillError.message("Camera did not start.") }
-                        continuation.resume()
+                        continuation.resume(returning: try beginDelivery(reused: true))
                         return
                     }
                     if self.session.isRunning { self.session.stopRunning() }
@@ -156,9 +169,7 @@ final class Camera: NSObject, AVCaptureVideoDataOutputSampleBufferDelegate, @unc
                     self.configuredDevice = device
                     self.configuredOutput = output
                     guard self.isCurrent(token) else { throw CancellationError() }
-                    self.session.startRunning()
-                    guard self.session.isRunning else { throw FillError.message("Camera did not start.") }
-                    continuation.resume()
+                    continuation.resume(returning: try beginDelivery(reused: false))
                 } catch {
                     if configuring { self.session.commitConfiguration() }
                     continuation.resume(throwing: error)
@@ -186,6 +197,7 @@ final class Camera: NSObject, AVCaptureVideoDataOutputSampleBufferDelegate, @unc
     }
 
     func captureOutput(_ output: AVCaptureOutput, didOutput sampleBuffer: CMSampleBuffer, from connection: AVCaptureConnection) {
+        let arrival = firstArrival ?? ProcessInfo.processInfo.systemUptime
         guard output === configuredOutput, let device = configuredDevice, let requested = configuredResolution,
               let buffer = CMSampleBufferGetImageBuffer(sampleBuffer) else { return }
         let pts = CMSampleBufferGetPresentationTimeStamp(sampleBuffer).seconds
@@ -193,18 +205,9 @@ final class Camera: NSObject, AVCaptureVideoDataOutputSampleBufferDelegate, @unc
         previousPTS = pts
         frameLock.lock()
         frameID &+= 1
-        let first = firstArrival ?? ProcessInfo.processInfo.systemUptime
-        firstArrival = first
-        frame = CameraFrame(firstArrival: first, id: frameID, requested: requested, active: Self.size(of: device.activeFormat), buffer: buffer, fps: fps)
+        firstArrival = arrival
+        frame = CameraFrame(firstArrival: arrival, id: frameID, requested: requested, active: Self.size(of: device.activeFormat), buffer: buffer, fps: fps)
         frameLock.unlock()
-    }
-}
-
-extension Camera {
-    func timedStart(deviceID: String, requested: CaptureResolution) async throws -> Double {
-        let start = ProcessInfo.processInfo.systemUptime
-        try await self.start(deviceID: deviceID, requested: requested)
-        return ProcessInfo.processInfo.systemUptime - start
     }
 }
 
@@ -219,7 +222,7 @@ struct DeveloperReadout {
     var detection: Double?
     var alignment: Double?
     var inference: Double?
-    var cameraStart: Double?
+    var startupPhases: [(String, TimeInterval)] = []
     var firstFrame: Double?
     var recognition: Double?
     var delivery: Double?
@@ -252,7 +255,8 @@ struct DeveloperReadout {
             ("Face bounding box (x, y, w, h)", box.map { String(format: "%.0f, %.0f, %.0f, %.0f", $0.minX, $0.minY, $0.width, $0.height) } ?? "—"),
             ("Face width", box.flatMap { b in resolution.map { String(format: "%.0f px · %.1f%%", b.width, 100 * b.width / CGFloat($0.width)) } } ?? "—"),
             ("Alignment tier", tier?.rawValue ?? "—"),
-            ("Camera startup", ms(cameraStart)), ("Trigger to first frame", ms(firstFrame)),
+            ("Trigger to first frame", ms(firstFrame))
+        ] + startupPhases.map { ($0.0, ms($0.1)) } + [
             ("Detection", ms(detection)), ("Alignment", ms(alignment)), ("ArcFace inference", ms(inference)),
             ("Trigger to recognition", ms(recognition)), ("Trigger to verified fill", ms(delivery)),
             ("Cosine similarity", similarity.map { String(format: "%.3f", $0) } ?? "—"),

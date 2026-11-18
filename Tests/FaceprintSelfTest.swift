@@ -6,6 +6,13 @@ private func executingOnMainThread() -> Bool { Thread.isMainThread }
 @main
 enum FaceprintSelfTest {
     static func main() async throws {
+        let startup = CameraStartupTiming(entered: 4, queued: 5, dequeued: 7, deviceReady: 8,
+                                          startRunningAt: 11, runningAt: 15, reused: false, calledStartRunning: true)
+        let phases = startup.phases(trigger: 0, task: 1, checked: 3, firstFrame: 25)
+        precondition(phases.map { $0.1 } == [1, 2, 1, 1, 2, 1, 3, 4, 10])
+        precondition(phases.reduce(0) { $0 + $1.1 } == 25)
+        precondition(startup.phases(trigger: 0, task: 1, checked: 3, firstFrame: nil).count == 8)
+        print("PASS first-frame timeline accounts for each interval once")
         let vga = CaptureResolution.standard[0], hd720 = CaptureResolution.standard[1]
         let fourMP = CaptureResolution(width: 2560, height: 1440)
         precondition(CaptureResolution.select(.hd, from: [vga, hd720, fourMP]) == hd720)
