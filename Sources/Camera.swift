@@ -247,7 +247,7 @@ struct DeveloperReadout {
 
     var rows: [(String, String)] {
         func ms(_ value: Double?) -> String { value.map { String(format: "%.1f ms", $0 * 1000) } ?? "—" }
-        return [
+        var rows: [(String, String)] = [
             ("Requested resolution", requested?.label ?? "—"),
             ("Active camera format", active?.label ?? "—"),
             ("Delivered resolution", resolution?.label ?? "—"),
@@ -256,11 +256,14 @@ struct DeveloperReadout {
             ("Face width", box.flatMap { b in resolution.map { String(format: "%.0f px · %.1f%%", b.width, 100 * b.width / CGFloat($0.width)) } } ?? "—"),
             ("Alignment tier", tier?.rawValue ?? "—"),
             ("Trigger to first frame", ms(firstFrame))
-        ] + startupPhases.map { ($0.0, ms($0.1)) } + [
+        ]
+        rows.append(contentsOf: startupPhases.map { ($0.0, ms($0.1)) })
+        rows.append(contentsOf: [
             ("Detection", ms(detection)), ("Alignment", ms(alignment)), ("ArcFace inference", ms(inference)),
             ("Trigger to recognition", ms(recognition)), ("Trigger to verified fill", ms(delivery)),
             ("Cosine similarity", similarity.map { String(format: "%.3f", $0) } ?? "—"),
             ("Recognition result", result), ("Rejection reason", reason ?? "—")
-        ]
+        ])
+        return rows
     }
 }
