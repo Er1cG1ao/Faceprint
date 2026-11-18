@@ -549,19 +549,33 @@ final class FillController: ObservableObject {
             var handedOff = false
             var keepingCameraWarm = false
             var anchor: PromptRetryAnchor?
+            var stage = "Checking prompt"
             do {
-                guard try await performPromptWork({ trigger.isCurrent() }) else { throw CancellationError() }
+                var promptCurrent = try await performPromptWork { trigger.isCurrent() }
+                if !promptCurrent {
+                    // AX can briefly report a field as unfocused while the dialog settles.
+                    // Check the same target again; never substitute a different prompt.
+                    try await Task.sleep(for: .milliseconds(70))
+                    promptCurrent = try await performPromptWork { trigger.isCurrent() }
+                }
+                guard promptCurrent else {
+                    throw FillError.message("The original prompt is no longer open, focused, or empty.")
+                }
                 let checkedAt = ProcessInfo.processInfo.systemUptime
+                stage = "Starting camera"
                 async let cameraReady = camera.start(deviceID: deviceID, requested: requested)
                 anchor = try await performPromptWork { PromptRetryAnchor(trigger) }
                 retryAnchor = anchor
                 retryHandoffStarted = false
+                stage = "Preparing recognition"
                 let recognizer = try await getRecognizer()
+                stage = "Starting camera"
                 let startup = try await cameraReady
                 try Task.checkCancellation()
                 if developerMode {
                     readout.startupPhases = startup.phases(trigger: triggerAt, task: taskAt, checked: checkedAt, firstFrame: nil)
                 }
+                stage = "Waiting for first frame"
                 record("Camera and recognition model ready")
                 try Task.checkCancellation()
                 let liveness = LivenessAnalyzer()
@@ -577,7 +591,9 @@ final class FillController: ObservableObject {
                     try Task.checkCancellation()
                     guard let frame = camera.latestFrame(), frame.id != lastFrame else {
                         if ProcessInfo.processInfo.systemUptime >= nextIdlePromptCheck {
-                            guard try await performPromptWork({ trigger.isCurrent() }) else { throw CancellationError() }
+                            guard try await performPromptWork({ trigger.isCurrent() }) else {
+                                throw FillError.message("The prompt changed while waiting for a new camera frame.")
+                            }
                             nextIdlePromptCheck = ProcessInfo.processInfo.systemUptime + 0.1
                         }
                         try await Task.sleep(nanoseconds: 6_000_000)
@@ -596,6 +612,7 @@ final class FillController: ObservableObject {
                         }
                         receivedFirstFrame = true
                     }
+                    stage = "Matching face"
                     let inferenceStart = ProcessInfo.processInfo.systemUptime
                     let scan = try await performPromptWork { try recognizer.recognize(frame.buffer, sourceScale: frame.sourceScale, includeQuality: usePhotoChecks) }
                     let result = scan.result
@@ -636,11 +653,13 @@ final class FillController: ObservableObject {
                     retryHandoffStarted = true
                     if useAnimation { NotchOverlayController.shared.faceRecognized() }
                     status = trigger.isBiometric ? "Face recognized. Waiting for the password field to focus…" : "Face recognized. Filling the password field…"
+                    stage = "Checking password field"
                     let target = try await performPromptWork { try await trigger.passwordTargetAfterRecognition(progress: report) }
                     record("Password field ready (\(target.ownerBundleID))")
                     try Task.checkCancellation()
                     // Normal polling does not rescan the transition. Any retry
                     // requires a freshly verified empty card and a new face match.
+                    stage = "Filling password"
                     let verified = try await performPromptWork {
                         var bytes = try SecureCredentialManager.readPassword()
                         defer { bytes.resetBytes(in: 0..<bytes.count) }
@@ -653,6 +672,7 @@ final class FillController: ObservableObject {
                         // immediately while the optional Return is dispatched.
                         if useAnimation { NotchOverlayController.shared.finish(success: true) }
                         if InputActionPolicy.shouldPressReturn(enabledAtStart: useAutomaticReturn, enabledNow: autoSubmit, verified: verified) {
+                            stage = "Submitting password"
                             try await performPromptWork { try target.pressReturn() }
                             record("Return sent")
                             status = "Password filled and Return pressed."
@@ -677,10 +697,11 @@ final class FillController: ObservableObject {
                 }
             } catch {
                 if !Task.isCancelled {
-                    status = error.localizedDescription
+                    let reason = error is CancellationError ? "The operation was interrupted." : error.localizedDescription
+                    status = reason
                     attemptFailed = true
-                    if developerMode { readout.result = "Stopped"; readout.reason = error.localizedDescription }
-                    record("Stopped: " + error.localizedDescription)
+                    if developerMode { readout.result = "Stopped — \(stage)"; readout.reason = reason }
+                    record("Stopped during \(stage): \(reason)")
                     if useAnimation { NotchOverlayController.shared.finish(success: false) }
                 }
             }

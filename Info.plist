@@ -8,8 +8,8 @@
 <key>CFBundleIconFile</key><string>Faceprint.icns</string>
 <key>CFBundlePackageType</key><string>APPL</string>
 <key>CFBundleShortVersionString</key><string>1.7.0</string>
-<key>FaceprintBetaLabel</key><string>Beta 4</string>
-<key>CFBundleVersion</key><string>42</string>
+<key>FaceprintBetaLabel</key><string>Beta 5</string>
+<key>CFBundleVersion</key><string>43</string>
 <key>LSMinimumSystemVersion</key><string>15.0</string>
 <key>LSUIElement</key><true/>
 <key>NSCameraUsageDescription</key><string>Faceprint uses your camera locally to enroll and recognize your face before filling the system password field.</string>
