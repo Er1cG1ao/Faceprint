@@ -33,20 +33,9 @@ struct DetectedFace {
 /// background task despite the project's default main-actor isolation.
 nonisolated enum FaceDetector {
     /// Runs face-rectangle, capture-quality, and landmarks detection on a single frame.
-    static func detectFaces(in image: CGImage, includeQuality: Bool = true) throws -> [DetectedFace] {
-        if !includeQuality {
-            let request = VNDetectFaceLandmarksRequest()
-            try VNImageRequestHandler(cgImage: image, options: [:]).perform([request])
-            let size = CGSize(width: image.width, height: image.height)
-            return (request.results ?? []).map { observation in
-                DetectedFace(boundingBox: convertToImageSpace(observation.boundingBox, imageSize: size),
-                    normalizedBoundingBox: observation.boundingBox, quality: nil,
-                    yaw: observation.yaw?.floatValue, roll: observation.roll?.floatValue,
-                    pitch: observation.pitch?.floatValue, landmarks: observation.landmarks, imageSize: size)
-            }
-        }
-        let handler = VNImageRequestHandler(cgImage: image, options: [:])
-
+    static func detectFaces(in buffer: CVPixelBuffer, includeQuality: Bool) throws -> [DetectedFace] {
+        let imageSize = CGSize(width: CVPixelBufferGetWidth(buffer), height: CVPixelBufferGetHeight(buffer))
+        let handler = VNImageRequestHandler(cvPixelBuffer: buffer, options: [:])
         let rectanglesRequest = VNDetectFaceRectanglesRequest()
         try handler.perform([rectanglesRequest])
         let faceObservations = rectanglesRequest.results ?? []
@@ -58,11 +47,11 @@ nonisolated enum FaceDetector {
         let landmarksRequest = VNDetectFaceLandmarksRequest()
         qualityRequest.inputFaceObservations = faceObservations
         landmarksRequest.inputFaceObservations = faceObservations
-        try handler.perform([qualityRequest, landmarksRequest])
+        let needQuality = includeQuality || faceObservations.contains { $0.boundingBox.width < 0.21 }
+        try handler.perform(needQuality ? [qualityRequest, landmarksRequest] : [landmarksRequest])
 
         let qualityResults = qualityRequest.results ?? []
         let landmarkResults = landmarksRequest.results ?? []
-        let imageSize = CGSize(width: image.width, height: image.height)
 
         return faceObservations.enumerated().map { index, observation in
             let pixelRect = convertToImageSpace(observation.boundingBox, imageSize: imageSize)

@@ -6,6 +6,24 @@ private func executingOnMainThread() -> Bool { Thread.isMainThread }
 @main
 enum FaceprintSelfTest {
     static func main() async throws {
+        let vga = CaptureResolution.standard[0], hd720 = CaptureResolution.standard[1]
+        let fourMP = CaptureResolution(width: 2560, height: 1440)
+        precondition(CaptureResolution.select(.hd, from: [vga, hd720, fourMP]) == hd720)
+        precondition(CaptureResolution.select(.hd, from: [fourMP]) == fourMP)
+        precondition(CaptureResolution.select(fourMP, from: [.hd, fourMP]) == fourMP)
+        precondition(CaptureResolution.select(.hd, from: []) == nil)
+        precondition(DistancePolicy.faceCountRejection(2) != nil && DistancePolicy.faceCountRejection(0) != nil)
+        func admitted(_ width: CGFloat, _ fraction: CGFloat, _ q: Float?, _ tier: AlignmentTier, _ eyes: CGFloat?) -> Bool {
+            DistancePolicy.rejection(width: width, fraction: fraction, quality: q, tier: tier, eyeDistance: eyes) == nil
+        }
+        precondition(admitted(192, 0.10, 0.42, .fivePoint, 60))
+        precondition(admitted(150, 0.08, 0.42, .fivePoint, 42))
+        precondition(!admitted(64, 0.10, 0.9, .fivePoint, 31))
+        precondition(!admitted(192, 0.10, nil, .fivePoint, 45))
+        precondition(!admitted(192, 0.10, 0.29, .fivePoint, 45))
+        precondition(!admitted(192, 0.10, 0.42, .twoPoint, 45))
+        precondition(!admitted(192, 0.10, 0.42, .fivePoint, 10))
+        print("PASS capture resolution negotiation, single-face policy, distance pixel/quality/landmark gates")
         let isBackground = try await performPromptWork { !executingOnMainThread() }
         precondition(isBackground, "Prompt work must not block main-thread rendering")
         let cancelled = Task {
@@ -187,6 +205,14 @@ enum FaceprintSelfTest {
         precondition(decoded.poses == nil && decoded.matches(vector))
         let names = poses.flatMap { [$0.0.name, $0.0.name] }
         let template = FaceTemplate(modelIdentifier: "arcface-w600k_mbf-v1", samples: Array(repeating: vector, count: 18), poses: names)
+        precondition(template.score(Array(repeating: .nan, count: 512)) == nil)
+        var below = Array(repeating: Float.zero, count: 512)
+        below[0] = 0.659
+        below[1] = sqrt(1 - below[0] * below[0])
+        let unit = [Float(1)] + Array(repeating: Float.zero, count: 511)
+        let thresholdTemplate = FaceTemplate(modelIdentifier: template.modelIdentifier, samples: Array(repeating: unit, count: 12))
+        precondition(!thresholdTemplate.matches(below))
+        precondition(thresholdTemplate.matches(unit))
         let restored = try JSONDecoder().decode(FaceTemplate.self, from: JSONEncoder().encode(template))
         precondition(restored.matches(vector) && restored.poses == names)
         print("PASS legacy face templates and nine-view serialization")

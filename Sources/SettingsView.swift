@@ -492,6 +492,26 @@ struct SetupView: View {
                         .tint(.primary).fixedSize().disabled(!canEdit)
                         .accessibilityLabel("Recognition camera: \(cameraLabel)")
                 }
+                rowDivider
+                row("Capture resolution", detail: "Uses the closest supported size on the selected camera.") {
+                    let device = devices.first { $0.uniqueID == controller.cameraID } ?? AVCaptureDevice.default(for: .video)
+                    let higher = device?.formats.map(Camera.size).filter { $0 > .hd } ?? []
+                    Picker("Capture resolution", selection: Binding(get: { controller.captureResolution }, set: controller.setResolution)) {
+                        ForEach(Set(CaptureResolution.standard + higher + [controller.captureResolution]).sorted(), id: \.self) {
+                            Text($0.label).tag($0)
+                        }
+                    }.labelsHidden().fixedSize().disabled(!canEdit)
+                }
+                rowDivider
+                toggleRow("Developer Mode", detail: "Show measurements from the latest recognition attempt.",
+                          isOn: Binding(get: { controller.developerMode }, set: controller.setDeveloperMode))
+            }
+            if controller.developerMode {
+                group {
+                    ForEach(controller.readout.rows, id: \.0) { label, value in
+                        row(label, detail: "") { Text(value).monospacedDigit().foregroundStyle(.secondary) }
+                    }
+                }
             }
         }
     }
@@ -503,7 +523,7 @@ struct SetupView: View {
                 .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
             VStack(spacing: 5) {
                 Text("Faceprint").font(.system(size: 23, weight: .bold))
-                Text("\(Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "")")
+                Text([Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString"), Bundle.main.object(forInfoDictionaryKey: "FaceprintBetaLabel")].compactMap { $0 as? String }.joined(separator: " "))
                     .font(.system(size: 12)).foregroundStyle(.secondary)
             }
             group {

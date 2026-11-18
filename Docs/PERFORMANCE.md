@@ -28,3 +28,20 @@ Settings **Copy diagnostics** copies only the latest attempt. Timings start at d
 The report is retained in memory and copied only when the user clicks the button. No password bytes, face images/embeddings, vault data or request/file titles are logged. Hosts and AX role names can explain why a visible dialog was not accepted. The original and replacement card must still satisfy request/signature/window checks; a timing change does not authorize a different prompt.
 
 For a reproducible report, capture the latest attempt before starting another. Report whether photo checks, Touch ID scanning and automatic Return were enabled, and whether the dialog was Settings, Finder, an installer or Passwords AutoFill. The component experiment does not validate real-world recognition accuracy, app focus or native input delivery.
+
+## 1.7.0 Beta 1 — distance testing
+
+Camera defaults to 1920×1080. Compare 640×480, 1280×720, 1920×1080 and the external camera's native higher mode in Settings → Camera. Developer Mode displays the resolution actually delivered by AVFoundation. It retains scalar measurements for the latest prompt in memory. The box uses source pixels with a top-left origin. Cosine similarity is the lower of centroid and best-sample scores for the best enabled identity. Detection includes Vision's quality and landmark work. Trigger times start when Faceprint accepts the prompt.
+
+At 10% frame width, VGA supplies 64 source pixels across the face and 1080p supplies 192. The beta requires at least 112 source pixels, and below 10% at least 135. Below the old 21% gate it also requires Vision capture quality ≥0.30, five-point alignment and at least 30 source pixels between the eyes. These are experimental admission criteria. All detected faces are counted before size filtering. Enrollment retains its pose sequence, hold, 20% minimum width and five-point requirement. The encrypted template format and both 0.66 match tests are unchanged.
+
+For a paired webcam comparison, keep the same enrollment, camera, lighting, prompt and photo-check setting. Disable automatic Return and automatic retry while counting attempts. Test 1.6.2 at VGA, then test each beta resolution at marked distances (for example 0.5, 1 and 1.5 m). Alternate the order across runs. Record actual resolution, attempts, successful first-attempt matches, rejection reasons, camera/first-frame times and trigger-to-verified-fill median and p95. Count timeouts separately. Include consenting unenrolled participants and two-person scenes, recording any false match against the number of attempts. A handful of negative trials cannot estimate a production false-accept rate.
+
+Build-host results: a synthetic 112×112 ArcFace run measured 142.8 ms load, 25.2 ms first prediction and 6.6 ms warm median. Vision's default backend could not load its detector on this host. To repeat the no-face component comparison on a Mac with Vision available:
+
+```sh
+swiftc -O -parse-as-library Sources/Upstream/FaceDetector.swift Tests/DetectionTiming.swift -o /tmp/FaceprintDetectionTiming
+/tmp/FaceprintDetectionTiming
+```
+
+Webcam startup, end-to-end fill latency, distance success and false matches require hardware trials with ground truth.

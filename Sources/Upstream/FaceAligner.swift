@@ -6,6 +6,7 @@
 //  Solves the 2D similarity transform mapping 5 detected landmarks onto the standard ArcFace template, then warps.
 //
 
+import CoreImage
 import Vision
 import CoreGraphics
 
@@ -35,24 +36,24 @@ nonisolated enum FaceAligner {
     private static let eyeReferencePoints = Array(referencePoints[0...1])
 
     /// Best-effort: 5-point landmarks, falling back to 2-point (eyes only), falling back to a padded crop.
-    static func align(_ face: DetectedFace, from image: CGImage) -> AlignedFace? {
-        let imageSize = CGSize(width: image.width, height: image.height)
-
-        if let landmarks = face.landmarks,
-           let points = fivePoints(from: landmarks, imageSize: imageSize),
-           let warped = warp(image, sourcePoints: points, destinationPoints: referencePoints) {
-            return AlignedFace(image: warped, tier: .fivePoint)
+    private static let context = CIContext(options: [.cacheIntermediates: false])
+    static func align(_ face: DetectedFace, from buffer: CVPixelBuffer) -> AlignedFace? {
+        let input = CIImage(cvPixelBuffer: buffer)
+        let size = input.extent.size
+        if let landmarks = face.landmarks {
+            if let points = fivePoints(from: landmarks, imageSize: size),
+               let image = warp(input, points, referencePoints) { return AlignedFace(image: image, tier: .fivePoint) }
+            if let eyes = twoPoints(from: landmarks, imageSize: size),
+               let image = warp(input, eyes, eyeReferencePoints) { return AlignedFace(image: image, tier: .twoPoint) }
         }
-
-        if let landmarks = face.landmarks,
-           let eyes = twoPoints(from: landmarks, imageSize: imageSize),
-           let warped = warp(image, sourcePoints: eyes, destinationPoints: eyeReferencePoints) {
-            return AlignedFace(image: warped, tier: .twoPoint)
-        }
-
-        guard let cropped = FaceDetector.crop(face, from: image),
-              let resized = resize(cropped, to: outputSize) else { return nil }
-        return AlignedFace(image: resized, tier: .paddedCrop)
+        let box = face.boundingBox.insetBy(dx: -face.boundingBox.width * 0.2, dy: -face.boundingBox.height * 0.2)
+        let rect = CGRect(x: box.minX, y: size.height - box.maxY, width: box.width, height: box.height)
+            .intersection(input.extent)
+        guard !rect.isEmpty else { return nil }
+        let crop = input.cropped(to: rect).transformed(by: .init(translationX: -rect.minX, y: -rect.minY))
+        let scale = CGAffineTransform(scaleX: CGFloat(outputSize) / rect.width, y: CGFloat(outputSize) / rect.height)
+        guard let image = render(crop, scale) else { return nil }
+        return AlignedFace(image: image, tier: .paddedCrop)
     }
 
     // MARK: - Landmark extraction
@@ -84,42 +85,16 @@ nonisolated enum FaceAligner {
 
     // MARK: - Warp
 
-    /// Points are given in top-left/y-down space but flipped before solving since CGContext is bottom-left/y-up;
-    /// the image itself needs no flip since `CGContext.draw(_:in:)` already handles a CGImage's row order.
-    private static func warp(_ image: CGImage, sourcePoints: [CGPoint], destinationPoints: [CGPoint]) -> CGImage? {
-        let imageHeight = CGFloat(image.height)
-        let sourceFlipped = sourcePoints.map { CGPoint(x: $0.x, y: imageHeight - $0.y) }
-        let destinationFlipped = destinationPoints.map { CGPoint(x: $0.x, y: CGFloat(outputSize) - $0.y) }
-
-        guard let transform = LandmarkGeometry.solveSimilarityTransform(from: sourceFlipped, to: destinationFlipped) else { return nil }
-
-        let colorSpace = image.colorSpace ?? CGColorSpaceCreateDeviceRGB()
-        guard let context = CGContext(
-            data: nil,
-            width: outputSize, height: outputSize,
-            bitsPerComponent: 8, bytesPerRow: 0,
-            space: colorSpace,
-            bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
-        ) else { return nil }
-
-        context.interpolationQuality = .high
-        context.concatenate(transform)
-        context.draw(image, in: CGRect(x: 0, y: 0, width: image.width, height: image.height))
-
-        return context.makeImage()
+    private static func warp(_ input: CIImage, _ source: [CGPoint], _ destination: [CGPoint]) -> CGImage? {
+        let src = source.map { CGPoint(x: $0.x, y: input.extent.height - $0.y) }
+        let dst = destination.map { CGPoint(x: $0.x, y: CGFloat(outputSize) - $0.y) }
+        guard let transform = LandmarkGeometry.solveSimilarityTransform(from: src, to: dst) else { return nil }
+        return render(input, transform)
     }
 
-    private static func resize(_ image: CGImage, to size: Int) -> CGImage? {
-        let colorSpace = image.colorSpace ?? CGColorSpaceCreateDeviceRGB()
-        guard let context = CGContext(
-            data: nil, width: size, height: size,
-            bitsPerComponent: 8, bytesPerRow: 0,
-            space: colorSpace,
-            bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
-        ) else { return nil }
-        context.interpolationQuality = .high
-        context.draw(image, in: CGRect(x: 0, y: 0, width: size, height: size))
-        return context.makeImage()
+    private static func render(_ image: CIImage, _ transform: CGAffineTransform) -> CGImage? {
+        let aligned = image.transformed(by: transform, highQualityDownsample: true)
+        return context.createCGImage(aligned, from: CGRect(x: 0, y: 0, width: outputSize, height: outputSize),
+                                     format: .BGRA8, colorSpace: CGColorSpace(name: CGColorSpace.sRGB))
     }
 }
-

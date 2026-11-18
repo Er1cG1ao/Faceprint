@@ -225,6 +225,25 @@ final class FillController: ObservableObject {
         settingsLastActivity = Date()
     }
 
+    @Published private(set) var captureResolution = CaptureResolution.preference
+    @Published private(set) var developerMode = UserDefaults.standard.bool(forKey: "developerMode")
+    @Published private(set) var readout = DeveloperReadout()
+
+    func setResolution(_ resolution: CaptureResolution) {
+        guard canEditOptions else { return }
+        captureResolution = resolution
+        UserDefaults.standard.set(resolution.label, forKey: "captureResolution")
+        settingsLastActivity = Date()
+    }
+
+    func setDeveloperMode(_ value: Bool) {
+        guard canEditOptions else { return }
+        developerMode = value
+        UserDefaults.standard.set(value, forKey: "developerMode")
+        readout = DeveloperReadout()
+        settingsLastActivity = Date()
+    }
+
     func setCameraID(_ value: String) {
         guard canEditOptions else { return }
         cameraID = value
@@ -497,6 +516,7 @@ final class FillController: ObservableObject {
         let deviceID = cameraID
         traceStart = ProcessInfo.processInfo.systemUptime
         diagnosticTrace = ""
+        if developerMode { readout = DeveloperReadout() }
         record("Detected verified \(trigger.description) prompt")
         let report: @Sendable (String) -> Void = { [weak self] event in
             Task { @MainActor in
@@ -518,9 +538,10 @@ final class FillController: ObservableObject {
                 retryAnchor = anchor
                 retryHandoffStarted = false
                 guard try await performPromptWork({ trigger.isCurrent() }) else { throw CancellationError() }
-                async let cameraReady: Void = camera.start(deviceID: deviceID)
+                async let cameraReady = camera.timedStart(deviceID: deviceID)
                 let recognizer = try await getRecognizer()
-                try await cameraReady
+                let cameraElapsed = try await cameraReady
+                if developerMode { readout.cameraStart = cameraElapsed }
                 record("Camera and recognition model ready")
                 try Task.checkCancellation()
                 let liveness = LivenessAnalyzer()
@@ -541,15 +562,23 @@ final class FillController: ObservableObject {
                         continue
                     }
                     lastFrame = frame.id
-                    if !receivedFirstFrame { record("First camera frame received"); receivedFirstFrame = true }
+                    if !receivedFirstFrame {
+                        record("First camera frame received (\(frame.resolution.label))")
+                        if developerMode { readout.firstFrame = frame.firstArrival - traceStart }
+                        receivedFirstFrame = true
+                    }
                     let inferenceStart = ProcessInfo.processInfo.systemUptime
-                    let result = try await performPromptWork { try recognizer.recognize(frame.image, includeQuality: usePhotoChecks) }
+                    let scan = try await performPromptWork { try recognizer.recognize(frame.buffer, includeQuality: usePhotoChecks) }
+                    let result = scan.result
+                    let score = result.flatMap { templates.score($0.embedding) }
+                    try Task.checkCancellation()
+                    if developerMode { readout.observe(frame, scan, score: score) }
                     if !receivedFirstInference {
                         record(String(format: "First face inference %.0fms (%@)", (ProcessInfo.processInfo.systemUptime - inferenceStart) * 1000, result == nil ? "no candidate" : "candidate found"))
                         receivedFirstInference = true
                     }
                     try Task.checkCancellation()
-                    guard let result, templates.matches(result.embedding) else {
+                    guard let result, (score ?? -1) >= 0.66 else {
                         _ = matchGate.observe(frame: frame.id, matched: false)
                         liveness.reset()
                         status = "Looking for your enrolled face…"
@@ -558,8 +587,9 @@ final class FillController: ObservableObject {
                     let faceReady = matchGate.observe(frame: frame.id, matched: true)
                     if usePhotoChecks {
                         let features = try await performPromptWork {
-                            let crop = frame.image.cropping(to: result.face.boundingBox)
-                            return LivenessFeatureExtractor.extract(from: result, frame: frame.image, faceCrop: crop)
+                            guard let image = frame.image else { throw FillError.message("Photo check frame unavailable.") }
+                            let crop = image.cropping(to: result.face.boundingBox)
+                            return LivenessFeatureExtractor.extract(from: result, frame: image, faceCrop: crop)
                         }
                         let snapshot = liveness.observe(features)
                         guard !snapshot.decision.isDenied else {
@@ -569,6 +599,7 @@ final class FillController: ObservableObject {
                     }
                     guard faceReady else { continue }
                     attemptGate.mark(trigger.requestKey)
+                    if developerMode { readout.recognition = ProcessInfo.processInfo.systemUptime - traceStart; readout.result = "Matched" }
                     camera.stop()
                     record("Enrolled face matched on two distinct frames")
                     handedOff = true
@@ -587,6 +618,7 @@ final class FillController: ObservableObject {
                     }
                     record(verified ? "Input delivery verified" : "Input delivery could not be verified")
                     if verified {
+                        if developerMode { readout.delivery = ProcessInfo.processInfo.systemUptime - traceStart }
                         // Filling success is already known: let the UI render
                         // immediately while the optional Return is dispatched.
                         if useAnimation { NotchOverlayController.shared.finish(success: true) }
@@ -608,6 +640,7 @@ final class FillController: ObservableObject {
                     break
                 }
                 if !filled {
+                    if developerMode { readout.result = "Timed out" }
                     attemptFailed = true
                     status = "Scan timed out. Hover the island to retry if enabled."
                     if useAnimation { NotchOverlayController.shared.finish(success: false) }
@@ -616,6 +649,7 @@ final class FillController: ObservableObject {
                 if !Task.isCancelled {
                     status = error.localizedDescription
                     attemptFailed = true
+                    if developerMode { readout.result = "Stopped"; readout.reason = error.localizedDescription }
                     record("Stopped: " + error.localizedDescription)
                     if useAnimation { NotchOverlayController.shared.finish(success: false) }
                 }

@@ -142,7 +142,7 @@ final class OnboardingController {
             }
             lastFrame = frame.id
             let result = try await Task.detached {
-                try recognizer.recognize(frame.image, minimumFaceWidth: 0.05)
+                try recognizer.recognize(frame.buffer, enrollment: true).result
             }.value
             try Task.checkCancellation()
             guard let result, let yaw = result.face.yaw, let pitch = result.face.pitch else {
@@ -154,12 +154,12 @@ final class OnboardingController {
             faceDetected = true
             currentYaw = yaw
             currentPitch = pitch
-            isTooFar = result.face.normalizedBoundingBox.width < 0.2
+            isTooFar = result.face.normalizedBoundingBox.width < 0.2 || result.face.boundingBox.width < 128
             excessiveTurn = abs(yaw) >= 0.51 || abs(pitch) >= 0.37
             let poseOK = EnrollmentPoseMatcher.matches(yaw: yaw, pitch: pitch, pose: pose,
                                                        widened: Date().timeIntervalSince(poseStartedAt) > 12)
             guard Date() >= captureReadyAt, !isTooFar, !excessiveTurn, poseOK,
-                  result.alignmentTier == .fivePoint, (result.face.quality ?? 1) >= 0.2 else {
+                  result.alignmentTier == .fivePoint, (result.face.quality ?? 0) >= 0.2 else {
                 heldSince = nil
                 matchStreak = 0
                 continue
