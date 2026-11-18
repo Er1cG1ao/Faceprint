@@ -155,6 +155,8 @@ enum FaceprintSelfTest {
         precondition(attempts.observe("request-a", now: 0))
         attempts.mark("request-a")
         precondition(!attempts.observe("request-a", now: 1), "Password stage must not start a second face scan")
+        precondition(attempts.observe("request-a", now: 1.05, replacesDismissedDialog: true),
+                     "Confirmed replacement can start a fresh scan immediately")
         precondition(!attempts.observe(nil, now: 1.1))
         precondition(!attempts.observe("request-a", now: 2), "An animation gap must not reset the attempt")
         precondition(attempts.observe("request-b", now: 2.1), "Unrelated requests remain independent")

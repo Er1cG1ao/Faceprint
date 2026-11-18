@@ -54,6 +54,7 @@ final class FillController: ObservableObject {
     private var operation: Task<Void, Never>?
     private var generation = 0
     private var attemptGate = PromptAttemptGate()
+    private var completedPrompt: CompletedPrompt?
     private var timer: Timer?
     private var observers: [NSObjectProtocol] = []
     private var screenObserver: NSObjectProtocol?
@@ -380,6 +381,7 @@ final class FillController: ObservableObject {
         previewTask?.cancel(); previewTask = nil
         operation?.cancel()
         operation = nil
+        completedPrompt = nil
         camera.stop()
         enrollment.dismiss()
         NotchOverlayController.shared.dismissImmediately()
@@ -472,13 +474,15 @@ final class FillController: ObservableObject {
         }
         let token = generation
         let allowBiometric = automaticPasswordFallback
+        let completedPrompt = completedPrompt
         probing = true
         Task {
             let result = await Task.detached(priority: .userInitiated) {
                 let target = FillTrigger.current(allowBiometric: allowBiometric)
                 let verified = target?.verifyAppleSignature() == true
                 let diagnostic = target == nil ? PromptTarget.diagnosticSummary() : nil
-                return (verified ? target : nil, diagnostic)
+                let replacesDismissedDialog = verified && target.map { completedPrompt?.wasReplaced(by: $0) == true } == true
+                return (verified ? target : nil, diagnostic, replacesDismissedDialog)
             }.value
             probing = false
             guard token == generation, enabled, !busy, !isEditingSavedData, !screenLocked, !sleeping, userSessionActive else { return }
@@ -487,6 +491,7 @@ final class FillController: ObservableObject {
                 _ = attemptGate.observe(nil, now: Date.timeIntervalSinceReferenceDate)
                 retryBudget.observeAbsence(now: Date.timeIntervalSinceReferenceDate)
                 if hadAttempt && !attemptGate.hasAttemptedRequest {
+                    self.completedPrompt = nil
                     retryAnchor = nil
                     retryTask?.cancel(); retryTask = nil
                     NotchOverlayController.shared.disarm()
@@ -494,7 +499,7 @@ final class FillController: ObservableObject {
                 if let diagnostic = result.1 { promptStatus = diagnostic }
                 return
             }
-            handleTrigger(trigger)
+            handleTrigger(trigger, replacesDismissedDialog: result.2)
         }
     }
 
@@ -509,12 +514,15 @@ final class FillController: ObservableObject {
         NSPasteboard.general.setString("Faceprint \(version) — most recent attempt\n" + diagnosticTrace, forType: .string)
     }
 
-    private func handleTrigger(_ trigger: FillTrigger) {
+    private func handleTrigger(_ trigger: FillTrigger, replacesDismissedDialog: Bool = false) {
         let templates = FaceIdentityCollection(identities: identities)
         guard identities.contains(where: { $0.isEnabled }) else { return }
         retryBudget.observe(trigger.requestKey)
         promptStatus = "Recognized \(trigger.description) prompt."
-        guard attemptGate.observe(trigger.requestKey, now: Date.timeIntervalSinceReferenceDate) else { return }
+        guard attemptGate.observe(trigger.requestKey, now: Date.timeIntervalSinceReferenceDate,
+                                  replacesDismissedDialog: replacesDismissedDialog) else { return }
+        completedPrompt = nil
+        if replacesDismissedDialog { retryBudget.reset() }
         attemptGate.mark(trigger.requestKey)
         retryTask?.cancel(); retryTask = nil
         busy = true
@@ -665,8 +673,10 @@ final class FillController: ObservableObject {
                         defer { bytes.resetBytes(in: 0..<bytes.count) }
                         return try await target.type(bytes, progress: report)
                     }
+                    try Task.checkCancellation()
                     record(verified ? "Input delivery verified" : "Input delivery could not be verified")
                     if verified {
+                        completedPrompt = CompletedPrompt(trigger: trigger, password: target)
                         if developerMode { readout.delivery = ProcessInfo.processInfo.systemUptime - traceStart }
                         // Filling success is already known: let the UI render
                         // immediately while the optional Return is dispatched.

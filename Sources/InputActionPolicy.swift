@@ -53,14 +53,14 @@ struct PromptAttemptGate {
     var hasAttemptedRequest: Bool { attempted != nil }
     mutating func mark(_ key: String) { attempted = key; absentSince = nil }
     mutating func reset() { attempted = nil; absentSince = nil }
-    mutating func observe(_ key: String?, now: TimeInterval) -> Bool {
+    mutating func observe(_ key: String?, now: TimeInterval, replacesDismissedDialog: Bool = false) -> Bool {
         guard let key else {
             if absentSince == nil { absentSince = now }
             if now - (absentSince ?? now) >= 2 { reset() }
             return false
         }
         absentSince = nil
-        return key != attempted
+        return key != attempted || replacesDismissedDialog
     }
 }
 

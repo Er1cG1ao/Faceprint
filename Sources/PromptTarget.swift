@@ -696,6 +696,13 @@ enum FillTrigger {
         case .biometric(let target): return target.contextID
         }
     }
+    fileprivate var dialogIdentity: AXUIElement? {
+        switch self {
+        case .password(let target): return target.dialogRoot
+        case .biometric(let target): return target.root
+        }
+    }
+
     var element: AXUIElement {
         switch self { case .password(let target): return target.field; case .biometric(let target): return target.button }
     }
@@ -715,6 +722,34 @@ enum FillTrigger {
             return try await target.prepareForInput(progress: progress)
         case .biometric(let target): return try await target.openPasswordField(progress: progress)
         }
+    }
+}
+
+/// Used only after verified delivery. A different field in an existing dialog
+/// and a temporary AX lookup failure are insufficient to release suppression.
+struct CompletedPrompt {
+    let context: String
+    private let originalDialog: AXUIElement
+    private let passwordDialog: AXUIElement
+
+    init?(trigger: FillTrigger, password: PromptTarget) {
+        guard let originalDialog = trigger.dialogIdentity,
+              let passwordDialog = password.dialogRoot else { return nil }
+        self.context = trigger.requestKey
+        self.originalDialog = originalDialog
+        self.passwordDialog = passwordDialog
+    }
+
+    func wasReplaced(by candidate: FillTrigger) -> Bool {
+        guard candidate.requestKey == context, let dialog = candidate.dialogIdentity,
+              !CFEqual(dialog, originalDialog), !CFEqual(dialog, passwordDialog) else { return false }
+        return Self.wasDestroyed(passwordDialog)
+            && (CFEqual(originalDialog, passwordDialog) || Self.wasDestroyed(originalDialog))
+    }
+
+    private static func wasDestroyed(_ dialog: AXUIElement) -> Bool {
+        var role: CFTypeRef?
+        return AXUIElementCopyAttributeValue(dialog, kAXRoleAttribute as CFString, &role) == .invalidUIElement
     }
 }
 
