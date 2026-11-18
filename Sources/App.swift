@@ -228,12 +228,10 @@ final class FillController: ObservableObject {
 
     @Published private(set) var captureResolution = CaptureResolution.preference
     @Published private(set) var developerMode = UserDefaults.standard.bool(forKey: "developerMode")
-    @Published private(set) var keepCameraWarm = UserDefaults.standard.bool(forKey: "keepCameraWarm")
     @Published private(set) var readout = DeveloperReadout()
 
     func setResolution(_ resolution: CaptureResolution) {
         guard canEditOptions else { return }
-        camera.endWarmHold()
         captureResolution = resolution
         UserDefaults.standard.set(resolution.label, forKey: "captureResolution")
         settingsLastActivity = Date()
@@ -247,17 +245,8 @@ final class FillController: ObservableObject {
         settingsLastActivity = Date()
     }
 
-    func setKeepCameraWarm(_ value: Bool) {
-        guard canEditOptions else { return }
-        keepCameraWarm = value
-        UserDefaults.standard.set(value, forKey: "keepCameraWarm")
-        if !value { camera.endWarmHold() }
-        settingsLastActivity = Date()
-    }
-
     func setCameraID(_ value: String) {
         guard canEditOptions else { return }
-        camera.endWarmHold()
         cameraID = value
         settingsLastActivity = Date()
     }
@@ -554,7 +543,6 @@ final class FillController: ObservableObject {
             var attemptFailed = false
             var startedScan = false
             var handedOff = false
-            var keepingCameraWarm = false
             var anchor: PromptRetryAnchor?
             var stage = "Checking prompt"
             do {
@@ -669,8 +657,7 @@ final class FillController: ObservableObject {
                     guard faceReady else { continue }
                     attemptGate.mark(trigger.requestKey)
                     if developerMode { readout.recognition = ProcessInfo.processInfo.systemUptime - traceStart; readout.result = "Matched" }
-                    keepingCameraWarm = keepCameraWarm && deviceID == cameraID && requested == captureResolution
-                    camera.stop(keepWarm: keepingCameraWarm)
+                    camera.stop()
                     record("Enrolled face matched on two distinct frames")
                     handedOff = true
                     retryHandoffStarted = true
@@ -735,7 +722,7 @@ final class FillController: ObservableObject {
                 }
             }
             if generation == currentGeneration {
-                if startedScan && (!keepingCameraWarm || attemptFailed || Task.isCancelled) { camera.stop() }
+                if startedScan && !handedOff { camera.stop() }
                 busy = false
                 operation = nil
                 if !useAnimation {

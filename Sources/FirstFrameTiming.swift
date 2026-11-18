@@ -10,7 +10,6 @@ struct CameraStartupTiming {
     let startRunningAt: TimeInterval
     let runningAt: TimeInterval
     let reused: Bool
-    let calledStartRunning: Bool
 
     func phases(trigger: TimeInterval, task: TimeInterval, checked: TimeInterval,
                 firstFrame: TimeInterval?) -> [(String, TimeInterval)] {
@@ -22,7 +21,7 @@ struct CameraStartupTiming {
             ("Camera queue wait", dequeued - queued),
             ("Look up camera", deviceReady - dequeued),
             (reused ? "Reuse capture configuration" : "Configure capture session", startRunningAt - deviceReady),
-            (calledStartRunning ? "startRunning()" : "Session already running", runningAt - startRunningAt)
+            ("startRunning()", runningAt - startRunningAt)
         ]
         if let firstFrame { stages.append(("Running to first frame callback", firstFrame - runningAt)) }
         return stages
