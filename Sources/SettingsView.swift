@@ -511,6 +511,8 @@ struct SetupView: View {
             }
             if controller.developerMode {
                 group {
+                    row("Prompt discovery", detail: controller.promptStatus) { EmptyView() }
+                    rowDivider
                     ForEach(controller.readout.rows, id: \.0) { label, value in
                         row(label, detail: "") { Text(value).monospacedDigit().foregroundStyle(.secondary) }
                     }

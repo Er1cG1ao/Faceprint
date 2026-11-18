@@ -736,26 +736,50 @@ enum FillTrigger {
     }
 }
 
-/// Used only after verified delivery. A different field in an existing dialog
-/// and a temporary AX lookup failure are insufficient to release suppression.
-struct CompletedPrompt {
+/// A different field in an existing dialog and a temporary AX lookup failure
+/// are insufficient to release suppression.
+struct PreviousPrompt {
     let context: String
     private let originalDialog: AXUIElement
-    private let passwordDialog: AXUIElement
+    private let passwordDialog: AXUIElement?
+    private let delivered: Bool
 
-    init?(trigger: FillTrigger, password: PromptTarget) {
-        guard let originalDialog = trigger.dialogIdentity,
-              let passwordDialog = password.dialogRoot else { return nil }
-        self.context = trigger.requestKey
+    init?(trigger: FillTrigger) {
+        guard let originalDialog = Self.dialog(for: trigger) else { return nil }
+        self.init(context: trigger.requestKey, originalDialog: originalDialog, passwordDialog: nil, delivered: false)
+    }
+
+    private init(context: String, originalDialog: AXUIElement, passwordDialog: AXUIElement?, delivered: Bool) {
+        self.context = context
         self.originalDialog = originalDialog
         self.passwordDialog = passwordDialog
+        self.delivered = delivered
+    }
+
+    func linkingPassword(_ password: PromptTarget) -> Self {
+        Self(context: context, originalDialog: originalDialog, passwordDialog: Self.dialog(for: .password(password)),
+             delivered: false)
+    }
+
+    func verifyingDelivery() -> Self {
+        Self(context: context, originalDialog: originalDialog, passwordDialog: passwordDialog, delivered: passwordDialog != nil)
     }
 
     func wasReplaced(by candidate: FillTrigger) -> Bool {
-        guard candidate.requestKey == context, let dialog = candidate.dialogIdentity,
-              !CFEqual(dialog, originalDialog), !CFEqual(dialog, passwordDialog) else { return false }
-        return Self.wasDestroyed(passwordDialog)
-            && (CFEqual(originalDialog, passwordDialog) || Self.wasDestroyed(originalDialog))
+        guard candidate.requestKey == context, delivered || candidate.isBiometric,
+              let dialog = Self.dialog(for: candidate), !CFEqual(dialog, originalDialog) else { return false }
+        if let passwordDialog, CFEqual(dialog, passwordDialog) || !Self.wasDestroyed(passwordDialog) {
+            return false
+        }
+        return Self.wasDestroyed(originalDialog)
+    }
+
+    private static func dialog(for trigger: FillTrigger) -> AXUIElement? {
+        // A nested control may be recreated even though the dialog is still open.
+        if let root = trigger.dialogIdentity,
+           let role = PromptTarget.attribute(root, kAXRoleAttribute) as? String,
+           role == kAXWindowRole || role == kAXSheetRole { return root }
+        return PromptTarget.elementAttribute(trigger.element, kAXWindowAttribute)
     }
 
     private static func wasDestroyed(_ dialog: AXUIElement) -> Bool {

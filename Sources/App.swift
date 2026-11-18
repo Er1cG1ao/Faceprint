@@ -54,7 +54,7 @@ final class FillController: ObservableObject {
     private var operation: Task<Void, Never>?
     private var generation = 0
     private var attemptGate = PromptAttemptGate()
-    private var completedPrompt: CompletedPrompt?
+    private var previousPrompt: PreviousPrompt?
     private var timer: Timer?
     private var observers: [NSObjectProtocol] = []
     private var screenObserver: NSObjectProtocol?
@@ -381,7 +381,7 @@ final class FillController: ObservableObject {
         previewTask?.cancel(); previewTask = nil
         operation?.cancel()
         operation = nil
-        completedPrompt = nil
+        previousPrompt = nil
         camera.stop()
         enrollment.dismiss()
         NotchOverlayController.shared.dismissImmediately()
@@ -474,14 +474,14 @@ final class FillController: ObservableObject {
         }
         let token = generation
         let allowBiometric = automaticPasswordFallback
-        let completedPrompt = completedPrompt
+        let previousPrompt = previousPrompt
         probing = true
         Task {
             let result = await Task.detached(priority: .userInitiated) {
                 let target = FillTrigger.current(allowBiometric: allowBiometric)
                 let verified = target?.verifyAppleSignature() == true
                 let diagnostic = target == nil ? PromptTarget.diagnosticSummary() : nil
-                let replacesDismissedDialog = verified && target.map { completedPrompt?.wasReplaced(by: $0) == true } == true
+                let replacesDismissedDialog = verified && target.map { previousPrompt?.wasReplaced(by: $0) == true } == true
                 return (verified ? target : nil, diagnostic, replacesDismissedDialog)
             }.value
             probing = false
@@ -491,12 +491,13 @@ final class FillController: ObservableObject {
                 _ = attemptGate.observe(nil, now: Date.timeIntervalSinceReferenceDate)
                 retryBudget.observeAbsence(now: Date.timeIntervalSinceReferenceDate)
                 if hadAttempt && !attemptGate.hasAttemptedRequest {
-                    self.completedPrompt = nil
+                    self.previousPrompt = nil
                     retryAnchor = nil
                     retryTask?.cancel(); retryTask = nil
                     NotchOverlayController.shared.disarm()
                 }
-                if let diagnostic = result.1 { promptStatus = diagnostic }
+                let message = result.1 ?? "No supported prompt found."
+                if promptStatus != message { promptStatus = message }
                 return
             }
             handleTrigger(trigger, replacesDismissedDialog: result.2)
@@ -518,10 +519,14 @@ final class FillController: ObservableObject {
         let templates = FaceIdentityCollection(identities: identities)
         guard identities.contains(where: { $0.isEnabled }) else { return }
         retryBudget.observe(trigger.requestKey)
-        promptStatus = "Recognized \(trigger.description) prompt."
         guard attemptGate.observe(trigger.requestKey, now: Date.timeIntervalSinceReferenceDate,
-                                  replacesDismissedDialog: replacesDismissedDialog) else { return }
-        completedPrompt = nil
+                                  replacesDismissedDialog: replacesDismissedDialog) else {
+            let message = "Repeat suppressed until the previous dialog closes."
+            if promptStatus != message { promptStatus = message }
+            return
+        }
+        promptStatus = "Starting scan for \(trigger.description)."
+        previousPrompt = nil
         if replacesDismissedDialog { retryBudget.reset() }
         attemptGate.mark(trigger.requestKey)
         retryTask?.cancel(); retryTask = nil
@@ -572,7 +577,10 @@ final class FillController: ObservableObject {
                 let checkedAt = ProcessInfo.processInfo.systemUptime
                 stage = "Starting camera"
                 async let cameraReady = camera.start(deviceID: deviceID, requested: requested)
-                anchor = try await performPromptWork { PromptRetryAnchor(trigger) }
+                let snapshot = try await performPromptWork { (PromptRetryAnchor(trigger), PreviousPrompt(trigger: trigger)) }
+                try Task.checkCancellation()
+                anchor = snapshot.0
+                previousPrompt = snapshot.1
                 retryAnchor = anchor
                 retryHandoffStarted = false
                 stage = "Preparing recognition"
@@ -668,6 +676,10 @@ final class FillController: ObservableObject {
                     // Normal polling does not rescan the transition. Any retry
                     // requires a freshly verified empty card and a new face match.
                     stage = "Filling password"
+                    let original = previousPrompt
+                    let evidence = try await performPromptWork { original?.linkingPassword(target) }
+                    try Task.checkCancellation()
+                    previousPrompt = evidence
                     let verified = try await performPromptWork {
                         var bytes = try SecureCredentialManager.readPassword()
                         defer { bytes.resetBytes(in: 0..<bytes.count) }
@@ -676,7 +688,7 @@ final class FillController: ObservableObject {
                     try Task.checkCancellation()
                     record(verified ? "Input delivery verified" : "Input delivery could not be verified")
                     if verified {
-                        completedPrompt = CompletedPrompt(trigger: trigger, password: target)
+                        previousPrompt = evidence?.verifyingDelivery()
                         if developerMode { readout.delivery = ProcessInfo.processInfo.systemUptime - traceStart }
                         // Filling success is already known: let the UI render
                         // immediately while the optional Return is dispatched.
