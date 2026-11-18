@@ -27,3 +27,18 @@ struct CameraStartupTiming {
         return stages
     }
 }
+
+/// The camera's first sample timestamp is converted to the host clock. The
+/// delay is computed there, so no absolute clock epochs are mixed.
+struct FirstCameraFrameTiming {
+    let callbackAt: TimeInterval
+    let presentationToCallback: TimeInterval?
+
+    func split(after startup: CameraStartupTiming) -> (runningToPresentation: TimeInterval, presentationToCallback: TimeInterval)? {
+        guard let delay = presentationToCallback, delay.isFinite, delay >= 0 else { return nil }
+        let presentationAt = callbackAt - delay
+        guard presentationAt >= startup.startRunningAt else { return nil }
+        // A frame can be timestamped before startRunning() returns.
+        return (presentationAt - startup.runningAt, delay)
+    }
+}

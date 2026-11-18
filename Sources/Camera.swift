@@ -10,7 +10,7 @@ enum FillError: LocalizedError {
 }
 
 struct CameraFrame {
-    let firstArrival: TimeInterval
+    let firstFrameTiming: FirstCameraFrameTiming
     let id: UInt64
     let requested: CaptureResolution
     let active: CaptureResolution
@@ -34,7 +34,7 @@ final class Camera: NSObject, AVCaptureVideoDataOutputSampleBufferDelegate, @unc
     private let controlLock = NSLock()
     private var generation: UInt64 = 0
     private var acceptingFrames = false
-    private var firstArrival: TimeInterval?
+    private var firstFrameTiming: FirstCameraFrameTiming?
     private var previousPTS: Double?
     private var configuredResolution: CaptureResolution?
     private var frame: CameraFrame?
@@ -138,7 +138,7 @@ final class Camera: NSObject, AVCaptureVideoDataOutputSampleBufferDelegate, @unc
                             reused: reused)
                     }
                     self.previousPTS = nil
-                    self.firstArrival = nil
+                    self.firstFrameTiming = nil
                     if self.configuredResolution == requested, self.configuredDevice?.uniqueID == device.uniqueID, !self.session.inputs.isEmpty {
                         continuation.resume(returning: try beginDelivery(reused: true))
                         return
@@ -202,16 +202,31 @@ final class Camera: NSObject, AVCaptureVideoDataOutputSampleBufferDelegate, @unc
     }
 
     func captureOutput(_ output: AVCaptureOutput, didOutput sampleBuffer: CMSampleBuffer, from connection: AVCaptureConnection) {
-        let arrival = firstArrival ?? ProcessInfo.processInfo.systemUptime
+        let arrival = firstFrameTiming == nil ? ProcessInfo.processInfo.systemUptime : 0
         guard acceptingFrames, output === configuredOutput, let device = configuredDevice, let requested = configuredResolution,
               let buffer = CMSampleBufferGetImageBuffer(sampleBuffer) else { return }
-        let pts = CMSampleBufferGetPresentationTimeStamp(sampleBuffer).seconds
+        let timestamp = CMSampleBufferGetPresentationTimeStamp(sampleBuffer)
+        let timing: FirstCameraFrameTiming
+        if let firstFrameTiming {
+            timing = firstFrameTiming
+        } else {
+            let hostClock = CMClockGetHostTimeClock()
+            let callbackHostTime = CMClockGetTime(hostClock)
+            let delay = session.synchronizationClock.flatMap { clock -> TimeInterval? in
+                guard timestamp.isNumeric else { return nil }
+                let hostPTS = CMSyncConvertTime(timestamp, from: clock, to: hostClock)
+                guard hostPTS.isNumeric else { return nil }
+                return CMTimeSubtract(callbackHostTime, hostPTS).seconds
+            }
+            timing = FirstCameraFrameTiming(callbackAt: arrival, presentationToCallback: delay)
+            firstFrameTiming = timing
+        }
+        let pts = timestamp.seconds
         let fps = previousPTS.flatMap { pts > $0 ? 1 / (pts - $0) : nil }
         previousPTS = pts
         frameLock.lock()
         frameID &+= 1
-        firstArrival = arrival
-        frame = CameraFrame(firstArrival: arrival, id: frameID, requested: requested, active: Self.size(of: device.activeFormat), buffer: buffer, fps: fps)
+        frame = CameraFrame(firstFrameTiming: timing, id: frameID, requested: requested, active: Self.size(of: device.activeFormat), buffer: buffer, fps: fps)
         frameLock.unlock()
     }
 }
@@ -229,6 +244,8 @@ struct DeveloperReadout {
     var inference: Double?
     var startupPhases: [(String, TimeInterval)] = []
     var firstFrame: Double?
+    var runningToFirstPTS: Double?
+    var firstPTSToCallback: Double?
     var recognition: Double?
     var delivery: Double?
     var similarity: Float?
@@ -264,6 +281,8 @@ struct DeveloperReadout {
         ]
         rows.append(contentsOf: startupPhases.map { ($0.0, ms($0.1)) })
         rows.append(contentsOf: [
+            ("First frame split · Running → timestamp", ms(runningToFirstPTS)),
+            ("First frame split · Timestamp → callback", ms(firstPTSToCallback)),
             ("Detection", ms(detection)), ("Alignment", ms(alignment)), ("ArcFace inference", ms(inference)),
             ("Trigger to recognition", ms(recognition)), ("Trigger to verified fill", ms(delivery)),
             ("Cosine similarity", similarity.map { String(format: "%.3f", $0) } ?? "—"),

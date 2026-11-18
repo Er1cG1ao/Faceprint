@@ -12,7 +12,14 @@ enum FaceprintSelfTest {
         precondition(phases.map { $0.1 } == [1, 2, 1, 1, 2, 1, 3, 4, 10])
         precondition(phases.reduce(0) { $0 + $1.1 } == 25)
         precondition(startup.phases(trigger: 0, task: 1, checked: 3, firstFrame: nil).count == 8)
-        print("PASS first-frame timeline accounts for each interval once")
+        let split = FirstCameraFrameTiming(callbackAt: 25, presentationToCallback: 2).split(after: startup)
+        precondition(split?.runningToPresentation == 8 && split?.presentationToCallback == 2)
+        let early = FirstCameraFrameTiming(callbackAt: 25, presentationToCallback: 12).split(after: startup)
+        precondition(early?.runningToPresentation == -2 && early?.presentationToCallback == 12)
+        for invalid: Double? in [nil, .nan, -1, 15] {
+            precondition(FirstCameraFrameTiming(callbackAt: 25, presentationToCallback: invalid).split(after: startup) == nil)
+        }
+        print("PASS first-frame timeline and host-clock timestamp split, including unavailable and early timestamps")
         let vga = CaptureResolution.standard[0], hd720 = CaptureResolution.standard[1]
         let fourMP = CaptureResolution(width: 2560, height: 1440)
         precondition(CaptureResolution.select(.hd, from: [vga, hd720, fourMP]) == hd720)

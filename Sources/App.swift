@@ -618,8 +618,12 @@ final class FillController: ObservableObject {
                     if !receivedFirstFrame {
                         record("First camera frame received (\(frame.resolution.label))")
                         if developerMode {
-                            readout.firstFrame = frame.firstArrival - triggerAt
-                            readout.startupPhases = startup.phases(trigger: triggerAt, task: taskAt, checked: checkedAt, firstFrame: frame.firstArrival)
+                            let timing = frame.firstFrameTiming
+                            readout.firstFrame = timing.callbackAt - triggerAt
+                            readout.startupPhases = startup.phases(trigger: triggerAt, task: taskAt, checked: checkedAt, firstFrame: timing.callbackAt)
+                            let breakdown = timing.split(after: startup)
+                            readout.runningToFirstPTS = breakdown?.runningToPresentation
+                            readout.firstPTSToCallback = breakdown?.presentationToCallback
                         }
                         receivedFirstFrame = true
                     }
