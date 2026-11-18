@@ -221,7 +221,12 @@ struct NotchOverlayView: View {
     /// whole panel — hence passing it into `MinimalUnlockView` rather than wrapping `Group`.
     @ViewBuilder
     private var scanContent: some View {
-        if isMinimalScan {
+        if controller.phase == .scanning && controller.faceIsMatched {
+            ProgressView()
+                .controlSize(.small)
+                .tint(.white)
+                .accessibilityLabel("Waiting for password prompt")
+        } else if isMinimalScan {
             MinimalUnlockView(
                 media: controller.media,
                 isUnlocked: isMinimalLockOpen,

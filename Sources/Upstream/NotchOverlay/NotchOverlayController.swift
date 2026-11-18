@@ -285,8 +285,8 @@ final class NotchOverlayController {
         faceIsMatched = false
         resolveTask?.cancel()
         scanTimeoutTask?.cancel()
-        // Keep a failed request's resting notch/pill available for hover retry.
-        isArmed = !success && GlanceSettings.shared.retryOnHover && onActivate != nil
+        // A one-shot failure is hoverable during its animation, then hides.
+        isArmed = isArmed && !success && GlanceSettings.shared.retryOnHover && onActivate != nil
         isPillDocked = isArmed
 
         // Unlock Animation → None just skips the success/failure video; phase and
@@ -317,15 +317,8 @@ final class NotchOverlayController {
                 if phase == .failure { Task { await collapse() } }
                 return
             }
-            resolveTask?.cancel(); resolveTask = nil
-            if !isArmed {
-                // Captures its own style here; the armed path doesn't need to since
-                // `onActivate()` routes through `beginScanning()`, which captures.
-                activeUnlockStyle = GlanceSettings.shared.effectiveUnlockAnimationStyle
-                content = .scan(.idle)
-                phase = .scanning
-                updateInteractivity()
-            }
+            // Leave the current resolve animation in place until the retry
+            // finds a valid prompt and explicitly presents a new scan.
             onActivate()
         case .scanning, .success, .collapsing, .onboarding:
             break
@@ -345,7 +338,7 @@ final class NotchOverlayController {
         phase = .collapsing
         updateInteractivity()
         try? await Task.sleep(for: collapseAnimationDuration)
-        guard phase == .collapsing else { return }
+        guard !Task.isCancelled, phase == .collapsing else { return }
 
         content = .scan(.idle)
         if isArmed {

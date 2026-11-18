@@ -549,15 +549,18 @@ struct BiometricPromptTarget {
         }
         progress("Selecting the verified Use Password control")
         let anchor = PasswordFallbackAnchor(root: root, button: button, ownerBundleID: ownerBundleID)
-        guard AXUIElementPerformAction(button, kAXPressAction as CFString) == .success else {
-            throw FillError.message("Use Password could not be selected. Open the password field manually.")
+        let pressResult = AXUIElementPerformAction(button, kAXPressAction as CFString)
+        guard pressResult == .success else {
+            throw FillError.message("Use Password could not be selected (AX error \(pressResult.rawValue)). Open it manually.")
         }
+        progress("Use Password press acknowledged; waiting for the password field")
         let transitionStarted = Date()
         let transitionFrontmostPID = NSWorkspace.shared.frontmostApplication?.processIdentifier
         let deadline = transitionStarted.addingTimeInterval(3)
         var lastField: AXUIElement?
         var readiness = PasswordFieldReadiness()
         var lastPhase = ""
+        var checkedUnchangedCard = false
         func report(_ phase: String) { if phase != lastPhase { lastPhase = phase; progress(phase) } }
         while Date() < deadline {
             try Task.checkCancellation()
@@ -596,6 +599,14 @@ struct BiometricPromptTarget {
                     return target
                 }
             } else {
+                if !checkedUnchangedCard, Date().timeIntervalSince(transitionStarted) >= 1 {
+                    checkedUnchangedCard = true
+                    if let currentButton = Self.fallbackButton(in: root), CFEqual(currentButton, button),
+                       PromptTarget.attribute(currentButton, kAXEnabledAttribute) as? Bool == true,
+                       Self.visible(root, pid: pid) {
+                        throw FillError.message("Touch ID prompt stayed open after Use Password. Open it manually or retry.")
+                    }
+                }
                 if let focused = PromptTarget.focusedElement() {
                     let role = PromptTarget.attribute(focused.element, kAXRoleAttribute) as? String ?? "unknown"
                     report("Waiting for password link; focused owner \(focused.app.bundleIdentifier ?? "unknown") (\(role)); foreground \(NSWorkspace.shared.frontmostApplication?.bundleIdentifier ?? "unknown")")
