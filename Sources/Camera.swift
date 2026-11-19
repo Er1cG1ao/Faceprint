@@ -22,8 +22,14 @@ struct CameraFrame {
     var sourceScale: CGFloat { active.sourceScale(delivered: resolution) }
     private static let context = CIContext(options: [.cacheIntermediates: false])
     var image: CGImage? {
-        let ci = CIImage(cvPixelBuffer: buffer)
-        return Self.context.createCGImage(ci, from: ci.extent)
+        let image = CIImage(cvPixelBuffer: buffer)
+        return Self.context.createCGImage(image, from: image.extent)
+    }
+
+    func faceCrop(_ box: CGRect) -> CGImage? {
+        let image = CIImage(cvPixelBuffer: buffer)
+        guard let crop = FaceDetector.coreImageCrop(box, imageSize: image.extent.size) else { return nil }
+        return Self.context.createCGImage(image, from: crop)
     }
 }
 

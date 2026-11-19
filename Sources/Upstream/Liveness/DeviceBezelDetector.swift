@@ -9,6 +9,7 @@
 
 import Vision
 import CoreGraphics
+import CoreVideo
 
 struct DeviceBezelObservation {
     /// Largest device-plausible rectangle found this frame, same pixel space as `DetectedFace.boundingBox`.
@@ -37,14 +38,13 @@ nonisolated enum DeviceBezelDetector {
     }
 
     /// Synchronous and CPU-bound — call from a background task, same as `FaceDetector.detectFaces`.
-    static func detect(in image: CGImage, faceBoundingBox: CGRect) -> DeviceBezelObservation {
+    static func detect(in buffer: CVPixelBuffer, faceBoundingBox: CGRect) throws -> DeviceBezelObservation {
         let request = makeRequest()
-        let handler = VNImageRequestHandler(cgImage: image, options: [:])
-        guard (try? handler.perform([request])) != nil,
-              let results = request.results, !results.isEmpty
-        else { return .none }
+        let handler = VNImageRequestHandler(cvPixelBuffer: buffer, options: [:])
+        try handler.perform([request])
+        guard let results = request.results, !results.isEmpty else { return .none }
 
-        let imageSize = CGSize(width: image.width, height: image.height)
+        let imageSize = CGSize(width: CVPixelBufferGetWidth(buffer), height: CVPixelBufferGetHeight(buffer))
         let candidates = results.map { FaceDetector.convertToImageSpace($0.boundingBox, imageSize: imageSize) }
             .filter { isPlausibleDevice($0, enclosing: faceBoundingBox, imageSize: imageSize) }
         guard let largest = candidates.max(by: { $0.width * $0.height < $1.width * $1.height }) else {

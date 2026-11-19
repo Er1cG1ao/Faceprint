@@ -572,7 +572,10 @@ final class FillController: ObservableObject {
                 if useAnimation {
                     NotchOverlayController.shared.present(onRetry: { [weak self] in self?.retry() })
                 } else { NotchOverlayController.shared.disarm() }
-                let snapshot = try await performPromptWork { (PromptRetryAnchor(trigger), PreviousPrompt(trigger: trigger)) }
+                let snapshot = try await performPromptWork {
+                    (PromptRetryAnchor(trigger), PreviousPrompt(trigger: trigger), templates.prepareMatchers())
+                }
+                let matchers = snapshot.2
                 try Task.checkCancellation()
                 anchor = snapshot.0
                 previousPrompt = snapshot.1
@@ -644,9 +647,14 @@ final class FillController: ObservableObject {
                     lastFrame = frame.id
                     stage = "Matching face"
                     let inferenceStart = ProcessInfo.processInfo.systemUptime
-                    let scan = try await performPromptWork { try recognizer.recognize(frame.buffer, sourceScale: frame.sourceScale, includeQuality: usePhotoChecks) }
+                    let (scan, score) = try await performPromptWork {
+                        let scan = try recognizer.recognize(frame.buffer, sourceScale: frame.sourceScale, includeQuality: usePhotoChecks)
+                        let score = scan.result.flatMap { result in
+                            matchers.compactMap { $0.score(result.embedding) }.max()
+                        }
+                        return (scan, score)
+                    }
                     let result = scan.result
-                    let score = result.flatMap { templates.score($0.embedding) }
                     matchingSeconds += ProcessInfo.processInfo.systemUptime - inferenceStart
                     framesProcessed += 1
                     try Task.checkCancellation()
@@ -669,9 +677,7 @@ final class FillController: ObservableObject {
                     if usePhotoChecks {
                         let photoCheckStart = ProcessInfo.processInfo.systemUptime
                         let features = try await performPromptWork {
-                            guard let image = frame.image else { throw FillError.message("Photo check frame unavailable.") }
-                            let crop = image.cropping(to: result.face.boundingBox)
-                            return LivenessFeatureExtractor.extract(from: result, frame: image, faceCrop: crop)
+                            try await LivenessFeatureExtractor.extract(from: result, frame: frame)
                         }
                         let snapshot = liveness.observe(features)
                         photoCheckSeconds += ProcessInfo.processInfo.systemUptime - photoCheckStart

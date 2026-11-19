@@ -78,6 +78,14 @@ nonisolated enum FaceDetector {
         return CGRect(x: x, y: y, width: width, height: height)
     }
 
+    /// Converts a top-left pixel box into a clipped, whole-pixel Core Image crop.
+    static func coreImageCrop(_ box: CGRect, imageSize: CGSize) -> CGRect? {
+        guard !box.isEmpty, !box.isInfinite else { return nil }
+        let rect = CGRect(x: box.minX, y: imageSize.height - box.maxY, width: box.width, height: box.height)
+            .integral.intersection(CGRect(origin: .zero, size: imageSize))
+        return rect.isEmpty ? nil : rect
+    }
+
     /// Crops `face` out of `image`, padding slightly around the detected box
     /// so the embedder sees a bit of context beyond just eyes/nose/mouth.
     static func crop(_ face: DetectedFace, from image: CGImage, paddingFraction: CGFloat = 0.2) -> CGImage? {

@@ -22,17 +22,28 @@ struct FaceTemplate: Codable, Sendable {
         self.qualities = qualities
     }
 
-    func score(_ embedding: [Float]) -> Float? {
+    struct Matcher: Sendable {
+        let samples: [[Float]]
+        let centroid: [Float]
+
+        func score(_ embedding: [Float]) -> Float? {
+            guard embedding.count == 512, embedding.allSatisfy(\.isFinite) else { return nil }
+            let best = samples.map { FaceEmbedding.cosineSimilarity($0, embedding) }.max() ?? 0
+            return min(FaceEmbedding.cosineSimilarity(centroid, embedding), best)
+        }
+    }
+
+    func prepareMatcher() -> Matcher? {
         guard modelIdentifier == "arcface-w600k_mbf-v1",
               samples.count >= 12,
-              embedding.count == 512, embedding.allSatisfy(\.isFinite),
               samples.allSatisfy({ $0.count == 512 && $0.allSatisfy(\.isFinite) }) else { return nil }
         let centroid = FaceEmbedding.l2Normalized((0..<512).map { index in
             samples.reduce(Float(0)) { $0 + $1[index] } / Float(samples.count)
         })
-        let best = samples.map { FaceEmbedding.cosineSimilarity($0, embedding) }.max() ?? 0
-        return min(FaceEmbedding.cosineSimilarity(centroid, embedding), best)
+        return Matcher(samples: samples, centroid: centroid)
     }
+
+    func score(_ embedding: [Float]) -> Float? { prepareMatcher()?.score(embedding) }
 
     func matches(_ embedding: [Float]) -> Bool { (score(embedding) ?? -1) >= 0.66 }
 
@@ -64,8 +75,8 @@ struct FaceIdentityCollection: Codable, Sendable {
         return Self(identities: [FaceIdentity(name: NSFullUserName(), template: legacy)])
     }
 
-    func score(_ embedding: [Float]) -> Float? {
-        identities.lazy.filter(\.isEnabled).compactMap { $0.template.score(embedding) }.max()
+    func prepareMatchers() -> [FaceTemplate.Matcher] {
+        identities.filter(\.isEnabled).compactMap { $0.template.prepareMatcher() }
     }
 
     func matches(_ embedding: [Float]) -> Bool {

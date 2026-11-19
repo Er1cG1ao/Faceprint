@@ -20,6 +20,12 @@ enum FaceprintSelfTest {
             precondition(FirstCameraFrameTiming(callbackAt: 25, presentationToCallback: invalid).split(after: startup) == nil)
         }
         print("PASS first-frame timeline and host-clock timestamp split, including unavailable and early timestamps")
+        let imageSize = CGSize(width: 100, height: 60)
+        precondition(FaceDetector.coreImageCrop(CGRect(x: 3.4, y: 6.2, width: 20.2, height: 10.5), imageSize: imageSize)
+                     == CGRect(x: 3, y: 43, width: 21, height: 11))
+        precondition(FaceDetector.coreImageCrop(CGRect(x: -5, y: 50, width: 20, height: 20), imageSize: imageSize)
+                     == CGRect(x: 0, y: 0, width: 15, height: 10))
+        precondition(FaceDetector.coreImageCrop(CGRect(x: 110, y: 0, width: 20, height: 20), imageSize: imageSize) == nil)
         let vga = CaptureResolution.standard[0], hd720 = CaptureResolution.standard[1]
         let fourMP = CaptureResolution(width: 2560, height: 1440)
         precondition(CaptureResolution.select(.hd, from: [vga, hd720, fourMP]) == hd720)
@@ -235,6 +241,10 @@ enum FaceprintSelfTest {
         let thresholdTemplate = FaceTemplate(modelIdentifier: template.modelIdentifier, samples: Array(repeating: unit, count: 12))
         precondition(!thresholdTemplate.matches(below))
         precondition(thresholdTemplate.matches(unit))
+        let prepared = thresholdTemplate.prepareMatcher()
+        precondition(prepared?.score(unit) == 1)
+        precondition((prepared?.score(below) ?? 1) < 0.66)
+        precondition(prepared?.score([1]) == nil)
         let restored = try JSONDecoder().decode(FaceTemplate.self, from: JSONEncoder().encode(template))
         precondition(restored.matches(vector) && restored.poses == names)
         print("PASS legacy face templates and nine-view serialization")
@@ -250,6 +260,8 @@ enum FaceprintSelfTest {
         precondition(faces.matches(other) && faces.matches(vector))
         faces.identities[0].isEnabled = false
         precondition(!faces.matches(vector) && faces.matches(other), "Disabled identities must never authorize filling")
+        precondition(faces.prepareMatchers().count == 1)
+        precondition(faces.prepareMatchers().first?.score(other) == 1)
         let multi = try FaceIdentityCollection.decode(JSONEncoder().encode(faces))
         precondition(multi.identities.map(\.id) == faces.identities.map(\.id))
         precondition(multi.identities[1].template.qualities == Array(repeating: Float(0.7), count: 18))

@@ -10,16 +10,16 @@ import Vision
 import CoreGraphics
 
 nonisolated enum LivenessFeatureExtractor {
-    /// Never fails — a face with no landmarks still yields a frame; cues that need landmarks abstain.
-    ///
-    /// - Parameter frame: the full camera frame, not `result.alignedImage` (a tightly-cropped
-    ///   112x112 warp with no room around the face for `DeviceBezelDetector` to see a device edge).
-    static func extract(
-        from result: FaceRecognitionResult, frame: CGImage, faceCrop: CGImage? = nil, timestamp: Date = Date()
-    ) -> LivenessFrame {
+    /// Check the full frame for a device bezel and the native-sized face
+    /// region for glare. Both branches read the same immutable camera frame.
+    static func extract(from result: FaceRecognitionResult, frame: CameraFrame) async throws -> LivenessFrame {
         let face = result.face
-        let deviceOverlap = DeviceBezelDetector.detect(in: frame, faceBoundingBox: face.boundingBox).faceOverlapFraction
-        let glare = faceCrop.flatMap { GlareCueExtractor.extract(faceCrop: $0) }
+        async let bezel = DeviceBezelDetector.detect(in: frame.buffer, faceBoundingBox: face.boundingBox)
+        async let glareSample = glare(in: frame, box: face.boundingBox)
+        let (device, glare) = try await (bezel, glareSample)
+        try Task.checkCancellation()
+        let deviceOverlap = device.faceOverlapFraction
+        let timestamp = Date()
 
         guard let landmarks = face.landmarks else {
             return LivenessFrame(
@@ -61,5 +61,10 @@ nonisolated enum LivenessFeatureExtractor {
             glare: glare
         )
     }
+    private static func glare(in frame: CameraFrame, box: CGRect) throws -> GlareSample? {
+        guard let crop = frame.faceCrop(box) else {
+            throw FillError.message("Photo check frame unavailable.")
+        }
+        return GlareCueExtractor.extract(faceCrop: crop)
+    }
 }
-
