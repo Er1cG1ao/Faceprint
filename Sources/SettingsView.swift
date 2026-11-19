@@ -502,18 +502,6 @@ struct SetupView: View {
                         }
                     }.labelsHidden().fixedSize().disabled(!canEdit)
                 }
-                rowDivider
-                toggleRow("Developer Mode", detail: "Show measurements from the latest recognition attempt.",
-                          isOn: Binding(get: { controller.developerMode }, set: controller.setDeveloperMode))
-            }
-            if controller.developerMode {
-                group {
-                    row("Prompt discovery", detail: controller.promptStatus) { EmptyView() }
-                    rowDivider
-                    ForEach(controller.readout.rows, id: \.0) { label, value in
-                        row(label, detail: "") { Text(value).monospacedDigit().foregroundStyle(.secondary) }
-                    }
-                }
             }
         }
     }
@@ -525,7 +513,7 @@ struct SetupView: View {
                 .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
             VStack(spacing: 5) {
                 Text("Faceprint").font(.system(size: 23, weight: .bold))
-                Text([Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString"), Bundle.main.object(forInfoDictionaryKey: "FaceprintBetaLabel")].compactMap { $0 as? String }.joined(separator: " "))
+                Text(Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "")
                     .font(.system(size: 12)).foregroundStyle(.secondary)
             }
             group {

@@ -22,11 +22,6 @@ final class LivenessAnalyzer {
 
     private var frames: [LivenessFrame] = []
     private var evaluator = LivenessEvaluator()
-    private(set) var lastSnapshot = LivenessSnapshot.empty
-    /// Kept for Face Lab's diagnostics panel (excess ratio, coherence, pair
-    /// counts, yaw range) — the numbers behind the flat-vs-3D cue's level.
-    private(set) var lastGeometry = GeometryLivenessResult.empty
-
     init(windowDuration: TimeInterval = 2.0) {
         self.windowDuration = windowDuration
     }
@@ -34,8 +29,6 @@ final class LivenessAnalyzer {
     func reset() {
         frames.removeAll()
         evaluator.reset()
-        lastSnapshot = .empty
-        lastGeometry = .empty
     }
 
     /// Call once per frame with a detected face, regardless of whether it matched an identity,
@@ -51,12 +44,9 @@ final class LivenessAnalyzer {
         evaluator.enabledCues = enabledCuesProvider()
 
         let geometry = GeometryLiveness.evaluate(frames)
-        lastGeometry = geometry
 
         let readings = LivenessCues.readings(window: frames, geometry: geometry)
-        let snapshot = evaluator.observe(readings)
-        lastSnapshot = snapshot
-        return snapshot
+        return evaluator.observe(readings)
     }
 }
 

@@ -71,13 +71,6 @@ nonisolated enum FaceDetector {
         return (quality.results ?? [], landmarks.results ?? [])
     }
 
-    static func warmNonemptyPath(in buffer: CVPixelBuffer, normalizedBox: CGRect) throws {
-        let handler = VNImageRequestHandler(cvPixelBuffer: buffer, options: [:])
-        // A blank buffer cannot supply a detected face. Exercise the same
-        // downstream requests with a synthetic observation and discard the result.
-        _ = try faceDetails(in: handler, faces: [VNFaceObservation(boundingBox: normalizedBox)], includeQuality: true)
-    }
-
     /// Vision's normalized rect has origin at bottom-left; `CGImage.cropping`
     /// expects pixel coordinates with origin at top-left. This flips the Y axis.
     static func convertToImageSpace(_ normalizedRect: CGRect, imageSize: CGSize) -> CGRect {

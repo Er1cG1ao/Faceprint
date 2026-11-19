@@ -6,20 +6,6 @@ private func executingOnMainThread() -> Bool { Thread.isMainThread }
 @main
 enum FaceprintSelfTest {
     static func main() async throws {
-        let startup = CameraStartupTiming(entered: 4, queued: 5, dequeued: 7, deviceReady: 8,
-                                          startRunningAt: 11, runningAt: 15, reused: false)
-        let phases = startup.phases(trigger: 0, task: 1, checked: 3, firstFrame: 25)
-        precondition(phases.map { $0.1 } == [1, 2, 1, 1, 2, 1, 3, 4, 10])
-        precondition(phases.reduce(0) { $0 + $1.1 } == 25)
-        precondition(startup.phases(trigger: 0, task: 1, checked: 3, firstFrame: nil).count == 8)
-        let split = FirstCameraFrameTiming(callbackAt: 25, presentationToCallback: 2).split(after: startup)
-        precondition(split?.runningToPresentation == 8 && split?.presentationToCallback == 2)
-        let early = FirstCameraFrameTiming(callbackAt: 25, presentationToCallback: 12).split(after: startup)
-        precondition(early?.runningToPresentation == -2 && early?.presentationToCallback == 12)
-        for invalid: Double? in [nil, .nan, -1, 15] {
-            precondition(FirstCameraFrameTiming(callbackAt: 25, presentationToCallback: invalid).split(after: startup) == nil)
-        }
-        print("PASS first-frame timeline and host-clock timestamp split, including unavailable and early timestamps")
         let imageSize = CGSize(width: 100, height: 60)
         precondition(FaceDetector.coreImageCrop(CGRect(x: 3.4, y: 6.2, width: 20.2, height: 10.5), imageSize: imageSize)
                      == CGRect(x: 3, y: 43, width: 21, height: 11))

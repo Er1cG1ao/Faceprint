@@ -49,13 +49,6 @@ struct PromptTarget {
         return (field, focused.pid, focused.app)
     }
 
-    static func diagnosticSummary() -> String? {
-        guard let focused = focusedElement(), let bundle = focused.app.bundleIdentifier,
-              focused.app.bundleURL?.path.hasPrefix("/System/") == true else { return nil }
-        let role = attribute(focused.element, kAXRoleAttribute) as? String ?? "unknown role"
-        return "System prompt owner: \(bundle) (\(role)); no supported request matched."
-    }
-
     static func current(requireEmpty: Bool = true) -> PromptTarget? {
         guard let focused = focusedSecureField(requireEmpty: requireEmpty) else { return nil }
         return candidate(focused.field, requireEmpty: requireEmpty)
@@ -155,10 +148,9 @@ struct PromptTarget {
         return BiometricPromptTarget.visible(window, pid: pid)
     }
 
-    func prepareForInput(progress: @Sendable (String) -> Void) async throws -> PromptTarget {
+    func prepareForInput() async throws -> PromptTarget {
         if isCurrent(requireEmpty: true) { return self }
         guard availableForRecognition(), verifyAppleSignature() else { throw CancellationError() }
-        progress("Focusing the password field (\(ownerBundleID))")
         focusForContinuation()
         let deadline = Date().addingTimeInterval(1)
         while Date() < deadline {
@@ -276,7 +268,7 @@ struct PromptTarget {
     /// Privacy & Security's extension does not reliably receive process-targeted
     /// events. Use Glance/Hammerspoon's HID delivery there and preserve the working
     /// direct-to-process route for Passwords AutoFill.
-    func type(_ bytes: Data, progress: @Sendable (String) -> Void) async throws -> Bool {
+    func type(_ bytes: Data) async throws -> Bool {
         try Task.checkCancellation()
         guard let current = Self.current(), current.pid == pid, current.contextID == contextID,
               CFEqual(current.field, field), verifyAppleSignature(),
@@ -289,7 +281,6 @@ struct PromptTarget {
         let canSet = AXUIElementIsAttributeSettable(field, kAXValueAttribute as CFString, &settable) == .success && settable.boolValue
         try Task.checkCancellation()
         if canSet && AXUIElementSetAttributeValue(field, kAXValueAttribute as CFString, text as CFString) == .success {
-            progress("Password assigned to secure field; checking delivery")
         } else {
             guard isCurrent(requireEmpty: true) else { throw FillError.message("Password field changed before input.") }
             let source = !contextID.hasPrefix("autofill:") ? nil : CGEventSource(stateID: .privateState)
@@ -312,7 +303,6 @@ struct PromptTarget {
                     post(down, up)
                 }
             }
-            progress("Keyboard input sent; checking delivery")
         }
         // No fixed post-fill settling period: the first matching sample wins.
         // Unknown or partial delivery never triggers Return or a second write.
@@ -534,7 +524,7 @@ struct BiometricPromptTarget {
         PromptTarget.verifyAppleSignature(pid: pid, bundleID: ownerBundleID)
     }
 
-    func openPasswordField(progress: @Sendable (String) -> Void) async throws -> PromptTarget {
+    func openPasswordField() async throws -> PromptTarget {
         try Task.checkCancellation()
         guard isCurrent(), verifyAppleSignature(),
               PromptPolicy.biometricContext(in: PromptTarget.dialogText(root), ownerBundleID: ownerBundleID) == contextID else {
@@ -547,21 +537,17 @@ struct BiometricPromptTarget {
             AXUIElementPerformAction(root, kAXRaiseAction as CFString)
             AXUIElementSetAttributeValue(button, kAXFocusedAttribute as CFString, kCFBooleanTrue)
         }
-        progress("Selecting the verified Use Password control")
         let anchor = PasswordFallbackAnchor(root: root, button: button, ownerBundleID: ownerBundleID)
         let pressResult = AXUIElementPerformAction(button, kAXPressAction as CFString)
         guard pressResult == .success else {
-            throw FillError.message("Use Password could not be selected (AX error \(pressResult.rawValue)). Open it manually.")
+            throw FillError.message("Use Password could not be selected. Open it manually.")
         }
-        progress("Use Password press acknowledged; waiting for the password field")
         let transitionStarted = Date()
         let transitionFrontmostPID = NSWorkspace.shared.frontmostApplication?.processIdentifier
         let deadline = transitionStarted.addingTimeInterval(3)
         var lastField: AXUIElement?
         var readiness = PasswordFieldReadiness()
-        var lastPhase = ""
         var checkedUnchangedCard = false
-        func report(_ phase: String) { if phase != lastPhase { lastPhase = phase; progress(phase) } }
         while Date() < deadline {
             try Task.checkCancellation()
             // The original host may exit after handing the card to another
@@ -576,11 +562,6 @@ struct BiometricPromptTarget {
                 }
                 guard length == 0 else { throw FillError.message("The password field is not empty. No password was entered.") }
                 let focused = target.isCurrent(requireEmpty: true)
-                if ownerBundleID == "com.apple.systempreferences", target.ownerBundleID == PromptPolicy.privacyBundleID {
-                    report("Settings password delegate linked (PrivacySecurity.extension); confirming empty-field focus")
-                } else {
-                    report("Password field found (\(target.ownerBundleID)); \(focused ? "confirming focus" : "requesting focus")")
-                }
                 if !focused {
                     let foreground = NSWorkspace.shared.frontmostApplication
                     let expectedRequester = contextID == "privacy" ? "com.apple.systempreferences"
@@ -607,18 +588,10 @@ struct BiometricPromptTarget {
                         throw FillError.message("Touch ID prompt stayed open after Use Password. Open it manually or retry.")
                     }
                 }
-                if let focused = PromptTarget.focusedElement() {
-                    let role = PromptTarget.attribute(focused.element, kAXRoleAttribute) as? String ?? "unknown"
-                    report("Waiting for password link; focused owner \(focused.app.bundleIdentifier ?? "unknown") (\(role)); foreground \(NSWorkspace.shared.frontmostApplication?.bundleIdentifier ?? "unknown")")
-                } else { report("Waiting for password link; no focused AX element") }
                 _ = readiness.observe(sameField: false, focusedAndEmpty: false,
                     now: Date().timeIntervalSince(transitionStarted))
             }
             try await Task.sleep(for: .milliseconds(16))
-        }
-        if let observed = PromptTarget.current(requireEmpty: false),
-           observed.pid != pid || observed.ownerBundleID != ownerBundleID {
-            throw FillError.message("Password handoff not accepted: \(ownerBundleID) → \(observed.ownerBundleID); contextMatches=\(observed.contextID == contextID), focusedEmpty=\(observed.isCurrent(requireEmpty: true)), appleSigned=\(observed.verifyAppleSignature()), foreground=\(NSWorkspace.shared.frontmostApplication?.bundleIdentifier ?? "unknown"). Choose Retry current prompt.")
         }
         throw FillError.message("The password field did not become ready. Focus it and choose Retry current prompt.")
     }
@@ -727,11 +700,11 @@ enum FillTrigger {
     func verifyAppleSignature() -> Bool {
         switch self { case .password(let target): return target.verifyAppleSignature(); case .biometric(let target): return target.verifyAppleSignature() }
     }
-    func passwordTargetAfterRecognition(progress: @Sendable (String) -> Void) async throws -> PromptTarget {
+    func passwordTargetAfterRecognition() async throws -> PromptTarget {
         switch self {
         case .password(let target):
-            return try await target.prepareForInput(progress: progress)
-        case .biometric(let target): return try await target.openPasswordField(progress: progress)
+            return try await target.prepareForInput()
+        case .biometric(let target): return try await target.openPasswordField()
         }
     }
 }

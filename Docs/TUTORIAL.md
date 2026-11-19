@@ -2,15 +2,15 @@
 
 [Home](../README.md) · **English** · [简体中文](TUTORIAL.zh-CN.md)
 
-This guide describes Faceprint 1.6.2.
+This guide describes Faceprint 1.7.1.
 
 ## Set up
 
-Download the app ZIP from [Releases](https://github.com/Er1cG1ao/faceprint/releases), quit any older instance, extract it, and move Faceprint into Applications. The app requires Apple Silicon and macOS 15+. Version 1.6.2 is Apple Development signed and not Apple-notarized.
+Download the app ZIP from [Releases](https://github.com/Er1cG1ao/faceprint/releases), quit any older instance, extract it, and move Faceprint into Applications. The app requires Apple Silicon and macOS 15+. Version 1.7.1 uses Apple Development signing and has no Apple notarization.
 
 On first launch, Faceprint requests Camera access and prompts for Accessibility access. On **General**, check both statuses under **Permissions** at the top (the block hides once both are granted). Camera is used for local recognition; Accessibility is used to inspect supported system dialogs and type into their password fields. If access is blocked, use the permission buttons and allow Faceprint in System Settings. Return to Faceprint to refresh the status.
 
-Click **Unlock session** and complete the macOS authentication request. Select your device on **Camera**. On **Your Face**, click **Enroll my face** and follow the nine-direction ring. Move gently and hold each position. The guide captures two samples per direction. After capture, enter or edit the suggested name in Name this face, then choose Save. Back repeats capture; closing Settings cancels without saving a new identity. Recapture preserves its existing name. Your Face shows identity cards with names, enable switches, sample-quality ticks, Recapture and Delete. Use + to add another named appearance or face. Only enabled identities participate in recognition; every enabled identity authorizes the same saved Mac password. Existing single-face data loads as an identity, with quality marked not recorded until recaptured. Save your Mac login password on **Password** after enrollment. The camera preview appears only during enrollment.
+Click **Unlock session** and complete the macOS authentication request. Select your device and **Capture resolution** on **Camera**. The default is 1920×1080. On **Your Face**, click **Enroll my face** and follow the nine-direction ring. Move gently and hold each position. The guide captures two samples per direction. After capture, enter or edit the suggested name in Name this face, then choose Save. Back repeats capture; closing Settings cancels without saving a new identity. Recapture preserves its existing name. Your Face shows identity cards with names, enable switches, sample-quality ticks, Recapture and Delete. Use + to add another named appearance or face. Only enabled identities participate in recognition; every enabled identity authorizes the same saved Mac password. Existing single-face data loads as an identity, with quality marked not recorded until recaptured. Save your Mac login password on **Password** after enrollment. The camera preview appears only during enrollment.
 
 ## First password fill
 
@@ -79,7 +79,7 @@ The app verifies supported Apple processes and dialog context. Visible supported
 
 The same ArcFace model and similarity thresholds are used with two distinct matching frames. Model warm-up and camera reuse reduce startup work. Where supported, the secure field receives one AXValue assignment; otherwise native keyboard delivery is retained. A quick length check remains before optional Return.
 
-The menu bar menu is limited to Settings… and Quit Faceprint. Troubleshooting status remains in the menu icon’s tooltip when shown. Copy diagnostics and other troubleshooting shortcuts are no longer in the menu.
+The menu bar menu is limited to Settings… and Quit Faceprint. Troubleshooting status remains in the menu icon’s tooltip when shown.
 
 ## Troubleshooting
 

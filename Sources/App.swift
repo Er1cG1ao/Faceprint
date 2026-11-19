@@ -11,7 +11,6 @@ final class FillController: ObservableObject {
     @Published private(set) var dataSessionReady = false
     @Published private(set) var settingsAccess = SettingsAccessState()
     @Published var protectionStatus = "Checking session protection…"
-    @Published var promptStatus = "Supports native macOS account authentication and Passwords AutoFill prompts."
     @Published var hasFace = false
     @Published var hasPassword = SecureCredentialManager.hasStoredPassword()
     @Published var busy = false
@@ -47,11 +46,8 @@ final class FillController: ObservableObject {
     private var retryAnchor: PromptRetryAnchor?
     private var retryHandoffStarted = false
     private var recognizer: Recognizer?
-    private var visionWarmupStatus = "Running"
     private var recognizerLoad: Task<Recognizer, Error>?
     private var probing = false
-    @Published private(set) var diagnosticTrace = ""
-    private var traceStart: TimeInterval = 0
     private var operation: Task<Void, Never>?
     private var generation = 0
     private var attemptGate = PromptAttemptGate()
@@ -76,7 +72,6 @@ final class FillController: ObservableObject {
     var canUnlockSettings: Bool { !settingsUnlocked && !authenticationInProgress && !screenLocked && !sleeping && userSessionActive }
     var canEnrollFace: Bool { canEditOptions && dataSessionReady && !isEnrolling }
     var isEnrollingFace: Bool { isEnrolling }
-
 
     var canEnable: Bool { InputActionPolicy.canEnable(dataSessionReady: dataSessionReady, hasFace: hasFace, hasPassword: hasPassword) }
 
@@ -121,11 +116,6 @@ final class FillController: ObservableObject {
         ) { [weak self] _ in Task { @MainActor in self?.screenLocked = false; self?.nextAutomaticDataAttempt = .distantPast } }
 
         recognizerLoad = Task.detached(priority: .userInitiated) { try Recognizer() }
-        let warmup = Task.detached(priority: .utility) { await VisionWarmup.run() }
-        Task { [weak self] in
-            let status = await warmup.value
-            self?.visionWarmupStatus = status
-        }
 
     }
 
@@ -233,21 +223,11 @@ final class FillController: ObservableObject {
     }
 
     @Published private(set) var captureResolution = CaptureResolution.preference
-    @Published private(set) var developerMode = UserDefaults.standard.bool(forKey: "developerMode")
-    @Published private(set) var readout = DeveloperReadout()
 
     func setResolution(_ resolution: CaptureResolution) {
         guard canEditOptions else { return }
         captureResolution = resolution
         UserDefaults.standard.set(resolution.label, forKey: "captureResolution")
-        settingsLastActivity = Date()
-    }
-
-    func setDeveloperMode(_ value: Bool) {
-        guard canEditOptions else { return }
-        developerMode = value
-        UserDefaults.standard.set(value, forKey: "developerMode")
-        readout = DeveloperReadout()
         settingsLastActivity = Date()
     }
 
@@ -475,9 +455,8 @@ final class FillController: ObservableObject {
             let result = await Task.detached(priority: .userInitiated) {
                 let target = FillTrigger.current(allowBiometric: allowBiometric)
                 let verified = target?.verifyAppleSignature() == true
-                let diagnostic = target == nil ? PromptTarget.diagnosticSummary() : nil
                 let replacesDismissedDialog = verified && target.map { previousPrompt?.wasReplaced(by: $0) == true } == true
-                return (verified ? target : nil, diagnostic, replacesDismissedDialog)
+                return (verified ? target : nil, replacesDismissedDialog)
             }.value
             probing = false
             guard token == generation, enabled, !busy, !isEditingSavedData, !screenLocked, !sleeping, userSessionActive else { return }
@@ -491,35 +470,17 @@ final class FillController: ObservableObject {
                     retryTask?.cancel(); retryTask = nil
                     NotchOverlayController.shared.disarm()
                 }
-                let message = result.1 ?? "No supported prompt found."
-                if promptStatus != message { promptStatus = message }
                 return
             }
-            handleTrigger(trigger, replacesDismissedDialog: result.2)
+            handleTrigger(trigger, replacesDismissedDialog: result.1)
         }
-    }
-
-    private func record(_ event: String) {
-        let line = String(format: "%.3fs %@", ProcessInfo.processInfo.systemUptime - traceStart, event)
-        diagnosticTrace += (diagnosticTrace.isEmpty ? "" : "\n") + line
-    }
-
-    func copyDiagnostics() {
-        NSPasteboard.general.clearContents()
-        let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "unknown"
-        NSPasteboard.general.setString("Faceprint \(version) — most recent attempt\n" + diagnosticTrace, forType: .string)
     }
 
     private func handleTrigger(_ trigger: FillTrigger, replacesDismissedDialog: Bool = false) {
         let templates = FaceIdentityCollection(identities: identities)
         guard identities.contains(where: { $0.isEnabled }) else { return }
         guard attemptGate.observe(trigger.requestKey, now: Date.timeIntervalSinceReferenceDate,
-                                  replacesDismissedDialog: replacesDismissedDialog) else {
-            let message = "Repeat suppressed until the previous dialog closes."
-            if promptStatus != message { promptStatus = message }
-            return
-        }
-        promptStatus = "Checking \(trigger.description) prompt."
+                                  replacesDismissedDialog: replacesDismissedDialog) else { return }
         retryTask?.cancel(); retryTask = nil
         retryAnchor = nil
         busy = true
@@ -532,28 +493,14 @@ final class FillController: ObservableObject {
         let useAutomaticReturn = autoSubmit
         let deviceID = cameraID
         let requested = captureResolution
-        traceStart = ProcessInfo.processInfo.systemUptime
-        diagnosticTrace = ""
-        if developerMode { readout = DeveloperReadout() }
-        record("Detected verified \(trigger.description) prompt")
-        let report: @Sendable (String) -> Void = { [weak self] event in
-            Task { @MainActor in
-                guard let self, self.generation == currentGeneration else { return }
-                self.record(event)
-                if self.busy { self.status = event }
-            }
-        }
-        let triggerAt = traceStart
         operation = Task { [self] in
-            let taskAt = ProcessInfo.processInfo.systemUptime
+
             var attemptFailed = false
             var startedScan = false
-            let collectFrameTimings = developerMode
-            var frameTimings: [RecognitionFrameTiming] = []
-            var framesProcessed = 0
+
             var handedOff = false
             var anchor: PromptRetryAnchor?
-            var stage = "Checking prompt"
+
             do {
                 var promptCurrent = try await performPromptWork { trigger.isCurrent() }
                 if !promptCurrent {
@@ -566,7 +513,7 @@ final class FillController: ObservableObject {
                     throw FillError.message("The original prompt is no longer open, focused, or empty.")
                 }
                 try Task.checkCancellation()
-                let checkedAt = ProcessInfo.processInfo.systemUptime
+
                 // Discovery alone does not consume the attempt. AX can briefly
                 // lose the focus or replace the control between two polls.
                 previousPrompt = nil
@@ -574,9 +521,9 @@ final class FillController: ObservableObject {
                 retryBudget.observe(trigger.requestKey)
                 attemptGate.mark(trigger.requestKey)
                 startedScan = true
-                stage = "Starting camera"
+
                 async let cameraReady = camera.start(deviceID: deviceID, requested: requested)
-                promptStatus = "Starting scan for \(trigger.description)."
+
                 status = "Looking for your face…"
                 if useAnimation {
                     NotchOverlayController.shared.present(onRetry: { [weak self] in self?.retry() })
@@ -590,37 +537,15 @@ final class FillController: ObservableObject {
                 previousPrompt = snapshot.1
                 retryAnchor = anchor
                 retryHandoffStarted = false
-                stage = "Preparing recognition"
+
                 let recognizer = try await getRecognizer()
-                stage = "Starting camera"
-                let startup = try await cameraReady
-                try Task.checkCancellation()
-                if developerMode {
-                    readout.startupPhases = startup.phases(trigger: triggerAt, task: taskAt, checked: checkedAt, firstFrame: nil)
-                }
-                stage = "Waiting for first frame"
-                record("Camera and recognition model ready")
+
+                try await cameraReady
                 try Task.checkCancellation()
                 let liveness = LivenessAnalyzer()
                 liveness.modeProvider = { .light }
                 var matchGate = FaceMatchGate()
-                var receivedFirstInference = false
                 var lastFrame: UInt64?
-                var firstFrameTakenAt: TimeInterval?
-                var firstMatchAt: TimeInterval?
-                var firstPairAt: TimeInterval?
-                var promptCheckSeconds: TimeInterval = 0
-                var matchingSeconds: TimeInterval = 0
-                var photoCheckSeconds: TimeInterval = 0
-                func checkPrompt() async throws -> Bool {
-                    let start = ProcessInfo.processInfo.systemUptime
-                    defer {
-                        if firstFrameTakenAt != nil {
-                            promptCheckSeconds += ProcessInfo.processInfo.systemUptime - start
-                        }
-                    }
-                    return try await performPromptWork { trigger.isCurrent() }
-                }
                 let deadline = Date().addingTimeInterval(12)
                 var nextIdlePromptCheck = ProcessInfo.processInfo.systemUptime + 0.1
                 var filled = false
@@ -628,7 +553,7 @@ final class FillController: ObservableObject {
                     try Task.checkCancellation()
                     guard let frame = camera.latestFrame(), frame.id != lastFrame else {
                         if ProcessInfo.processInfo.systemUptime >= nextIdlePromptCheck {
-                            guard try await checkPrompt() else {
+                            guard try await performPromptWork({ trigger.isCurrent() }) else {
                                 throw FillError.message("The prompt changed while waiting for a new camera frame.")
                             }
                             nextIdlePromptCheck = ProcessInfo.processInfo.systemUptime + 0.1
@@ -636,82 +561,32 @@ final class FillController: ObservableObject {
                         try await Task.sleep(nanoseconds: 6_000_000)
                         continue
                     }
-                    if firstFrameTakenAt == nil {
-                        firstFrameTakenAt = ProcessInfo.processInfo.systemUptime
-                        record("First camera frame received (\(frame.resolution.label))")
-                        if developerMode {
-                            let timing = frame.firstFrameTiming
-                            readout.visionWarmup = visionWarmupStatus
-                            readout.firstFrame = timing.callbackAt - triggerAt
-                            readout.startupPhases = startup.phases(trigger: triggerAt, task: taskAt, checked: checkedAt, firstFrame: timing.callbackAt)
-                            let breakdown = timing.split(after: startup)
-                            readout.runningToFirstPTS = breakdown?.runningToPresentation
-                            readout.firstPTSToCallback = breakdown?.presentationToCallback
-                        }
-                    }
-                    guard try await checkPrompt() else {
+                    guard try await performPromptWork({ trigger.isCurrent() }) else {
                         throw FillError.message("Prompt changed. Return to the supported prompt and hover the island to retry.")
                     }
                     nextIdlePromptCheck = ProcessInfo.processInfo.systemUptime + 0.1
                     lastFrame = frame.id
-                    stage = "Matching face"
-                    let inferenceStart = ProcessInfo.processInfo.systemUptime
-                    let (scan, score) = try await performPromptWork {
-                        let scan = try recognizer.recognize(frame.buffer, sourceScale: frame.sourceScale, includeQuality: usePhotoChecks)
-                        let score = scan.result.flatMap { result in
-                            matchers.compactMap { $0.score(result.embedding) }.max()
+
+                    let (result, score) = try await performPromptWork {
+                        let result = try recognizer.recognize(frame.buffer, sourceScale: frame.sourceScale, includeQuality: usePhotoChecks)
+                        let score = result.flatMap { face in
+                            matchers.compactMap { $0.score(face.embedding) }.max()
                         }
-                        return (scan, score)
-                    }
-                    let result = scan.result
-                    let analysisDuration = ProcessInfo.processInfo.systemUptime - inferenceStart
-                    matchingSeconds += analysisDuration
-                    framesProcessed += 1
-                    let scoreMatched = result != nil && (score ?? -1) >= 0.66
-                    var photoDuration: TimeInterval?
-                    var photoResult: String?
-                    defer {
-                        if collectFrameTimings, frameTimings.count < 8 {
-                            frameTimings.append(RecognitionFrameTiming(
-                                startFromFirstFrame: inferenceStart - frame.firstFrameTiming.callbackAt,
-                                analysis: analysisDuration, detection: scan.detection,
-                                alignment: scan.alignment, inference: scan.inference,
-                                score: score, matched: scoreMatched, rejection: scan.reason,
-                                photoDuration: photoDuration, photoResult: photoResult))
-                        }
+                        return (result, score)
                     }
                     try Task.checkCancellation()
-                    if developerMode { readout.observe(frame, scan, score: score) }
-                    if !receivedFirstInference {
-                        record(String(format: "First face inference %.0fms (%@)", (ProcessInfo.processInfo.systemUptime - inferenceStart) * 1000, result == nil ? "no candidate" : "candidate found"))
-                        receivedFirstInference = true
-                    }
-                    try Task.checkCancellation()
-                    guard let result, scoreMatched else {
+                    guard let result, (score ?? -1) >= 0.66 else {
                         _ = matchGate.observe(frame: frame.id, matched: false)
                         liveness.reset()
                         status = "Looking for your enrolled face…"
                         continue
                     }
-                    let matchAt = ProcessInfo.processInfo.systemUptime
-                    if firstMatchAt == nil { firstMatchAt = matchAt }
                     let faceReady = matchGate.observe(frame: frame.id, matched: true)
-                    if faceReady && firstPairAt == nil { firstPairAt = matchAt }
                     if usePhotoChecks {
-                        let photoCheckStart = ProcessInfo.processInfo.systemUptime
-                        photoResult = "Interrupted"
                         let features = try await performPromptWork {
                             try await LivenessFeatureExtractor.extract(from: result, frame: frame)
                         }
                         let snapshot = liveness.observe(features)
-                        let duration = ProcessInfo.processInfo.systemUptime - photoCheckStart
-                        photoCheckSeconds += duration
-                        photoDuration = duration
-                        switch snapshot.decision {
-                        case .confirmed: photoResult = "Confirmed"
-                        case .pending: photoResult = "Pending"
-                        case .denied: photoResult = "Denied"
-                        }
                         guard !snapshot.decision.isDenied else {
                             throw FillError.message(snapshot.decision.denialReason ?? "Photo check failed.")
                         }
@@ -719,35 +594,18 @@ final class FillController: ObservableObject {
                     }
                     guard faceReady else { continue }
                     attemptGate.mark(trigger.requestKey)
-                    if developerMode, let firstFrameTakenAt {
-                        let confirmedAt = ProcessInfo.processInfo.systemUptime
-                        let callbackAt = frame.firstFrameTiming.callbackAt
-                        readout.recognition = confirmedAt - triggerAt
-                        readout.result = "Matched"
-                        readout.scanPhases = [
-                            ("First frame → confirmation", confirmedAt - callbackAt),
-                            ("First frame → scan takes frame", firstFrameTakenAt - callbackAt),
-                            ("Prompt checks · total", promptCheckSeconds),
-                            ("Face analysis and scoring · total", matchingSeconds),
-                            ("Photo checks · total", usePhotoChecks ? photoCheckSeconds : nil),
-                            ("Frame waits and other work", max(0, confirmedAt - firstFrameTakenAt
-                                - promptCheckSeconds - matchingSeconds - photoCheckSeconds)),
-                            ("First frame → first score match", firstMatchAt.map { $0 - callbackAt }),
-                            ("First frame → first matching pair", firstPairAt.map { $0 - callbackAt })
-                        ]
-                    }
                     camera.stop()
-                    record("Enrolled face matched on two distinct frames")
+
                     handedOff = true
                     retryHandoffStarted = true
                     status = trigger.isBiometric ? "Face recognized. Waiting for the password field to focus…" : "Face recognized. Filling the password field…"
-                    stage = "Checking password field"
-                    let target = try await performPromptWork { try await trigger.passwordTargetAfterRecognition(progress: report) }
-                    record("Password field ready (\(target.ownerBundleID))")
+
+                    let target = try await performPromptWork { try await trigger.passwordTargetAfterRecognition() }
+
                     try Task.checkCancellation()
                     // Normal polling does not rescan the transition. Any retry
                     // requires a freshly verified empty card and a new face match.
-                    stage = "Filling password"
+
                     let original = previousPrompt
                     let evidence = try await performPromptWork { original?.linkingPassword(target) }
                     try Task.checkCancellation()
@@ -755,20 +613,20 @@ final class FillController: ObservableObject {
                     let verified = try await performPromptWork {
                         var bytes = try SecureCredentialManager.readPassword()
                         defer { bytes.resetBytes(in: 0..<bytes.count) }
-                        return try await target.type(bytes, progress: report)
+                        return try await target.type(bytes)
                     }
                     try Task.checkCancellation()
-                    record(verified ? "Input delivery verified" : "Input delivery could not be verified")
+
                     if verified {
                         previousPrompt = evidence?.verifyingDelivery()
-                        if developerMode { readout.delivery = ProcessInfo.processInfo.systemUptime - traceStart }
+
                         // Filling success is already known: let the UI render
                         // immediately while the optional Return is dispatched.
                         if useAnimation { NotchOverlayController.shared.finish(success: true) }
                         if InputActionPolicy.shouldPressReturn(enabledAtStart: useAutomaticReturn, enabledNow: autoSubmit, verified: verified) {
-                            stage = "Submitting password"
+
                             try await performPromptWork { try target.pressReturn() }
-                            record("Return sent")
+
                             status = "Password filled and Return pressed."
                         } else {
                             status = "Password filled. Review the request and click \(target.confirmationButton)."
@@ -784,7 +642,7 @@ final class FillController: ObservableObject {
                     break
                 }
                 if !filled {
-                    if developerMode { readout.result = "Timed out" }
+
                     attemptFailed = true
                     status = "Scan timed out. Hover the island to retry if enabled."
                     if useAnimation { NotchOverlayController.shared.finish(success: false) }
@@ -794,17 +652,11 @@ final class FillController: ObservableObject {
                     let reason = error is CancellationError ? "The operation was interrupted." : error.localizedDescription
                     status = reason
                     attemptFailed = true
-                    if developerMode { readout.result = "Stopped — \(stage)"; readout.reason = reason }
-                    record("Stopped during \(stage): \(reason)")
-                    if !startedScan { promptStatus = "Prompt changed before scanning. Watching for a valid prompt." }
+
                     if startedScan && useAnimation { NotchOverlayController.shared.finish(success: false) }
                 }
             }
             if generation == currentGeneration {
-                if developerMode, framesProcessed > 0 {
-                    readout.framesProcessed = framesProcessed
-                    readout.frameTimings = frameTimings
-                }
                 if startedScan && !handedOff { camera.stop() }
                 busy = false
                 operation = nil
@@ -845,7 +697,7 @@ final class FillController: ObservableObject {
                 if let current {
                     retryProbing = false; retryTask = nil
                     attemptGate.reset()
-                    record(automatic ? "Automatic retry: fresh face scan" : "Hover retry: fresh face scan")
+
                     handleTrigger(current)
                     return
                 }
@@ -856,7 +708,7 @@ final class FillController: ObservableObject {
             }
             retryProbing = false; retryTask = nil
             retryAnchor = nil
-            record("Retry stopped: no verified empty card matches the request")
+
             NotchOverlayController.shared.disarm()
         }
     }

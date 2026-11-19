@@ -1,3 +1,12 @@
+# Faceprint 1.7.1
+
+- Add camera resolution selection in Camera settings. Default to 1920×1080, with native higher modes when available and automatic fallback on unsupported modes.
+- Improve distant face recognition while retaining the existing ArcFace model, 0.66 threshold, two-frame confirmation and enrolled templates. Prepare identity centroids once per scan and run enclosure detection and glare analysis concurrently when photo checks are enabled.
+- Improve recovery after a prompt temporarily loses focus or a completed or failed Touch ID dialog is replaced.
+- Remove the beta timing panel, diagnostic capture and experimental synthetic Vision warmup. The camera starts on demand and stops after scanning.
+
+Apple Silicon · macOS 15+. Build 55 uses Apple Development signing. The app and installer retain Team QKA3ST9DRU and the established designated requirement. This build has no Apple notarization.
+
 # Faceprint 1.6.2
 
 - Replace the revoked 1.6.1 Apple Development certificate with the owner's existing replacement identity (`99F4562390898BB4980D2D36D1A5A05AECBC5938`). App and installer use Team `QKA3ST9DRU`; the default designated requirement is unchanged. The reason for the old certificate's revocation is not established.

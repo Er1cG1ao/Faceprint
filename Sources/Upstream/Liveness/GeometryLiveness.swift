@@ -37,15 +37,12 @@ struct GeometryLivenessResult: Equatable {
     let excessRatio: CGFloat?
     let coherence: CGFloat?
     let motionMagnitude: CGFloat?
-    /// Normalized distance ratios for Face Lab — diagnostic only, do not vote.
-    let diagnosticRatios: [String: CGFloat]
 
     static let empty = GeometryLivenessResult(
         planarResidualScore: 0, planarConfidence: 0,
         validLandmarkCount: 0, pairsAnalyzed: 0, rejectedPairCount: 0,
         medianFitResidual: nil, medianProbeResidual: nil,
-        excessRatio: nil, coherence: nil, motionMagnitude: nil,
-        diagnosticRatios: [:]
+        excessRatio: nil, coherence: nil, motionMagnitude: nil
     )
 
     /// Adapter into the shared cue vocabulary — see `LivenessCues.readings`.
@@ -69,21 +66,18 @@ nonisolated private let geometryProbeRegions: Set<LandmarkRegion> = [
 nonisolated enum GeometryLiveness {
     static func evaluate(_ window: [LivenessFrame], tuning: GeometryTuning = .default) -> GeometryLivenessResult {
         let lastLandmarks = window.last?.landmarks.count ?? 0
-        var diagnostics = diagnosticRatios(from: window.last)
 
         guard window.count >= 3 else {
             return GeometryLivenessResult(
                 planarResidualScore: 0, planarConfidence: 0,
                 validLandmarkCount: lastLandmarks, pairsAnalyzed: 0, rejectedPairCount: 0,
                 medianFitResidual: nil, medianProbeResidual: nil,
-                excessRatio: nil, coherence: nil, motionMagnitude: nil,
-                diagnosticRatios: diagnostics
+                excessRatio: nil, coherence: nil, motionMagnitude: nil
             )
         }
 
         let yawRange = yawRangeDegrees(window)
         let yawGateOK = (yawRange ?? 0) >= tuning.minYawRangeDegrees
-        if let yawRange { diagnostics["yaw range (deg)"] = yawRange }
 
         var excesses: [CGFloat] = []
         var coherences: [CGFloat] = []
@@ -147,8 +141,7 @@ nonisolated enum GeometryLiveness {
             medianProbeResidual: medianProbe,
             excessRatio: excess,
             coherence: coherence,
-            motionMagnitude: motion,
-            diagnosticRatios: diagnostics
+            motionMagnitude: motion
         )
     }
 
@@ -261,49 +254,6 @@ nonisolated enum GeometryLiveness {
             pairs.append((0, count - 1, 3))
         }
         return pairs
-    }
-
-    // MARK: - Diagnostic ratios (display only)
-
-    private static func centroid(_ points: [LandmarkPoint]?) -> CGPoint? {
-        guard let points, !points.isEmpty else { return nil }
-        let sum = points.reduce(CGPoint.zero) { CGPoint(x: $0.x + $1.point.x, y: $0.y + $1.point.y) }
-        return CGPoint(x: sum.x / CGFloat(points.count), y: sum.y / CGFloat(points.count))
-    }
-
-    private static func diagnosticRatios(from frame: LivenessFrame?) -> [String: CGFloat] {
-        guard let frame else { return [:] }
-        let grouped = Dictionary(grouping: frame.landmarks, by: \.region)
-        var ratios: [String: CGFloat] = [:]
-        if let iod = frame.interocularDistance, iod > 0 { ratios["interocular"] = iod }
-        let xs = frame.landmarks.map(\.point.x)
-        let ys = frame.landmarks.map(\.point.y)
-        let faceWidth = (xs.max() ?? 0) - (xs.min() ?? 0)
-        let faceHeight = (ys.max() ?? 0) - (ys.min() ?? 0)
-        if faceWidth > 0, let iod = frame.interocularDistance, iod > 0 {
-            ratios["eye / faceW"] = iod / faceWidth
-        }
-        if let left = centroid(grouped[.leftEye]), let right = centroid(grouped[.rightEye]),
-           let nose = centroid(grouped[.nose]), faceHeight > 0 {
-            let eyeMid = CGPoint(x: (left.x + right.x) / 2, y: (left.y + right.y) / 2)
-            ratios["nose-eye / faceH"] = hypot(nose.x - eyeMid.x, nose.y - eyeMid.y) / faceHeight
-            if let lips = grouped[.outerLips], !lips.isEmpty {
-                let mouth = CGPoint(
-                    x: lips.reduce(CGFloat(0)) { $0 + $1.point.x } / CGFloat(lips.count),
-                    y: lips.reduce(CGFloat(0)) { $0 + $1.point.y } / CGFloat(lips.count)
-                )
-                ratios["nose-mouth / faceH"] = hypot(mouth.x - nose.x, mouth.y - nose.y) / faceHeight
-                if faceWidth > 0 {
-                    let mouthW = (lips.map(\.point.x).max() ?? 0) - (lips.map(\.point.x).min() ?? 0)
-                    ratios["mouthW / faceW"] = mouthW / faceWidth
-                }
-                let noseMouth = hypot(mouth.x - nose.x, mouth.y - nose.y)
-                if noseMouth > 0, let iod = frame.interocularDistance {
-                    ratios["eye / nose-mouth"] = iod / noseMouth
-                }
-            }
-        }
-        return ratios
     }
 
     // MARK: - Stats

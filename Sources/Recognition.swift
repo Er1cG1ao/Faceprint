@@ -112,39 +112,20 @@ final class Recognizer: @unchecked Sendable {
         }
     }
 
-    func recognize(_ buffer: CVPixelBuffer, sourceScale: CGFloat, enrollment: Bool = false, includeQuality: Bool = true) throws -> ScanMeasurement {
-        var scan = ScanMeasurement()
-        let start = ProcessInfo.processInfo.systemUptime
+    func recognize(_ buffer: CVPixelBuffer, sourceScale: CGFloat, enrollment: Bool = false,
+                   includeQuality: Bool = true) throws -> FaceRecognitionResult? {
         let faces = try FaceDetector.detectFaces(in: buffer, includeQuality: includeQuality)
-        let detected = ProcessInfo.processInfo.systemUptime
-        scan.detection = detected - start
-        guard DistancePolicy.faceCountRejection(faces.count) == nil, let face = faces.first else {
-            scan.reason = DistancePolicy.faceCountRejection(faces.count)
-            return scan
+        guard DistancePolicy.faceCountRejection(faces.count) == nil, let face = faces.first,
+              let aligned = FaceAligner.align(face, from: buffer) else { return nil }
+        if !enrollment {
+            let eyes = face.landmarks.flatMap { LandmarkGeometry.interocularDistance(from: $0, imageSize: face.imageSize) }
+            guard DistancePolicy.rejection(width: face.boundingBox.width * sourceScale,
+                fraction: face.normalizedBoundingBox.width, quality: face.quality, tier: aligned.tier,
+                eyeDistance: eyes.map { $0 * sourceScale }) == nil else { return nil }
         }
-        scan.box = face.boundingBox
-        guard let aligned = FaceAligner.align(face, from: buffer) else {
-            scan.reason = "Alignment failed"
-            return scan
-        }
-        let alignedAt = ProcessInfo.processInfo.systemUptime
-        scan.alignment = alignedAt - detected
-        scan.tier = aligned.tier
-        let eyes = face.landmarks.flatMap { LandmarkGeometry.interocularDistance(from: $0, imageSize: face.imageSize) }
-        if !enrollment, let rejection = DistancePolicy.rejection(width: face.boundingBox.width * sourceScale,
-            fraction: face.normalizedBoundingBox.width, quality: face.quality, tier: aligned.tier, eyeDistance: eyes.map { $0 * sourceScale }) {
-            scan.reason = rejection
-            return scan
-        }
-        let beforeInference = ProcessInfo.processInfo.systemUptime
         let embedding = try embedder.embedding(for: aligned.image)
-        scan.inference = ProcessInfo.processInfo.systemUptime - beforeInference
-        guard embedding.count == 512, embedding.allSatisfy(\.isFinite) else {
-            scan.reason = "Invalid model output"
-            return scan
-        }
-        scan.result = FaceRecognitionResult(embedding: embedding, alignmentTier: aligned.tier, face: face)
-        return scan
+        guard embedding.count == 512, embedding.allSatisfy(\.isFinite) else { return nil }
+        return FaceRecognitionResult(embedding: embedding, alignmentTier: aligned.tier, face: face)
     }
 }
 
@@ -167,14 +148,4 @@ enum DistancePolicy {
         guard tier == .fivePoint, let eyeDistance, eyeDistance >= 30 else { return "Unreliable landmarks" }
         return nil
     }
-}
-
-struct ScanMeasurement {
-    var result: FaceRecognitionResult?
-    var box: CGRect?
-    var tier: AlignmentTier?
-    var detection: Double = 0
-    var alignment: Double?
-    var inference: Double?
-    var reason: String?
 }

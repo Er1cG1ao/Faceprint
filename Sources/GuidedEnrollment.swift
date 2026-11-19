@@ -142,7 +142,7 @@ final class OnboardingController {
             }
             lastFrame = frame.id
             let result = try await Task.detached {
-                try recognizer.recognize(frame.buffer, sourceScale: frame.sourceScale, enrollment: true).result
+                try recognizer.recognize(frame.buffer, sourceScale: frame.sourceScale, enrollment: true)
             }.value
             try Task.checkCancellation()
             guard let result, let yaw = result.face.yaw, let pitch = result.face.pitch else {

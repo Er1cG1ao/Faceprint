@@ -10,12 +10,9 @@ enum FillError: LocalizedError {
 }
 
 struct CameraFrame {
-    let firstFrameTiming: FirstCameraFrameTiming
     let id: UInt64
-    let requested: CaptureResolution
     let active: CaptureResolution
     let buffer: CVPixelBuffer
-    let fps: Double?
     var resolution: CaptureResolution {
         CaptureResolution(width: CVPixelBufferGetWidth(buffer), height: CVPixelBufferGetHeight(buffer))
     }
@@ -40,8 +37,6 @@ final class Camera: NSObject, AVCaptureVideoDataOutputSampleBufferDelegate, @unc
     private let controlLock = NSLock()
     private var generation: UInt64 = 0
     private var acceptingFrames = false
-    private var firstFrameTiming: FirstCameraFrameTiming?
-    private var previousPTS: Double?
     private var configuredResolution: CaptureResolution?
     private var frame: CameraFrame?
     private var frameID: UInt64 = 0
@@ -107,9 +102,7 @@ final class Camera: NSObject, AVCaptureVideoDataOutputSampleBufferDelegate, @unc
         min(30, format.videoSupportedFrameRateRanges.map(\.maxFrameRate).max() ?? 0)
     }
 
-    @discardableResult
-    func start(deviceID: String, requested: CaptureResolution) async throws -> CameraStartupTiming {
-        let entered = ProcessInfo.processInfo.systemUptime
+    func start(deviceID: String, requested: CaptureResolution) async throws {
         let token = nextGeneration()
         clearFrame()
         let allowed: Bool
@@ -117,36 +110,32 @@ final class Camera: NSObject, AVCaptureVideoDataOutputSampleBufferDelegate, @unc
         else { allowed = await AVCaptureDevice.requestAccess(for: .video) }
         try Task.checkCancellation()
         guard allowed else { throw FillError.message("Allow Camera access in System Settings, then try again.") }
-        return try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<CameraStartupTiming, Error>) in
-            let queued = ProcessInfo.processInfo.systemUptime
+        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
+
             queue.async {
-                let dequeued = ProcessInfo.processInfo.systemUptime
+
                 var configuring = false
                 do {
                     guard self.isCurrent(token) else { throw CancellationError() }
                     let device = (deviceID.isEmpty ? nil : AVCaptureDevice(uniqueID: deviceID)) ?? AVCaptureDevice.default(for: .video)
                     guard let device else { throw FillError.message("No camera is available.") }
-                    let deviceReady = ProcessInfo.processInfo.systemUptime
+
                     self.acceptingFrames = false
                     if self.session.isRunning { self.session.stopRunning() }
                     self.clearFrame()
-                    func beginDelivery(reused: Bool) throws -> CameraStartupTiming {
-                        let before = ProcessInfo.processInfo.systemUptime
+                    func beginDelivery() throws {
+
                         self.session.startRunning()
-                        let after = ProcessInfo.processInfo.systemUptime
+
                         guard self.session.isRunning, self.isCurrent(token) else {
                             if !self.isCurrent(token) { throw CancellationError() }
                             throw FillError.message("Camera did not start.")
                         }
                         self.acceptingFrames = true
-                        return CameraStartupTiming(entered: entered, queued: queued, dequeued: dequeued,
-                            deviceReady: deviceReady, startRunningAt: before, runningAt: after,
-                            reused: reused)
                     }
-                    self.previousPTS = nil
-                    self.firstFrameTiming = nil
                     if self.configuredResolution == requested, self.configuredDevice?.uniqueID == device.uniqueID, !self.session.inputs.isEmpty {
-                        continuation.resume(returning: try beginDelivery(reused: true))
+                        try beginDelivery()
+                        continuation.resume()
                         return
                     }
                     self.configuredDevice = nil
@@ -181,7 +170,8 @@ final class Camera: NSObject, AVCaptureVideoDataOutputSampleBufferDelegate, @unc
                     self.configuredDevice = device
                     self.configuredOutput = output
                     guard self.isCurrent(token) else { throw CancellationError() }
-                    continuation.resume(returning: try beginDelivery(reused: false))
+                    try beginDelivery()
+                    continuation.resume()
                 } catch {
                     if configuring { self.session.commitConfiguration() }
                     continuation.resume(throwing: error)
@@ -208,125 +198,11 @@ final class Camera: NSObject, AVCaptureVideoDataOutputSampleBufferDelegate, @unc
     }
 
     func captureOutput(_ output: AVCaptureOutput, didOutput sampleBuffer: CMSampleBuffer, from connection: AVCaptureConnection) {
-        let arrival = firstFrameTiming == nil ? ProcessInfo.processInfo.systemUptime : 0
-        guard acceptingFrames, output === configuredOutput, let device = configuredDevice, let requested = configuredResolution,
+        guard acceptingFrames, output === configuredOutput, let device = configuredDevice,
               let buffer = CMSampleBufferGetImageBuffer(sampleBuffer) else { return }
-        let timestamp = CMSampleBufferGetPresentationTimeStamp(sampleBuffer)
-        let timing: FirstCameraFrameTiming
-        if let firstFrameTiming {
-            timing = firstFrameTiming
-        } else {
-            let hostClock = CMClockGetHostTimeClock()
-            let callbackHostTime = CMClockGetTime(hostClock)
-            let delay = session.synchronizationClock.flatMap { clock -> TimeInterval? in
-                guard timestamp.isNumeric else { return nil }
-                let hostPTS = CMSyncConvertTime(timestamp, from: clock, to: hostClock)
-                guard hostPTS.isNumeric else { return nil }
-                return CMTimeSubtract(callbackHostTime, hostPTS).seconds
-            }
-            timing = FirstCameraFrameTiming(callbackAt: arrival, presentationToCallback: delay)
-            firstFrameTiming = timing
-        }
-        let pts = timestamp.seconds
-        let fps = previousPTS.flatMap { pts > $0 ? 1 / (pts - $0) : nil }
-        previousPTS = pts
         frameLock.lock()
         frameID &+= 1
-        frame = CameraFrame(firstFrameTiming: timing, id: frameID, requested: requested, active: Self.size(of: device.activeFormat), buffer: buffer, fps: fps)
+        frame = CameraFrame(id: frameID, active: Self.size(of: device.activeFormat), buffer: buffer)
         frameLock.unlock()
-    }
-}
-
-struct RecognitionFrameTiming {
-    let startFromFirstFrame: TimeInterval
-    let analysis: TimeInterval
-    let detection: TimeInterval
-    let alignment: TimeInterval?
-    let inference: TimeInterval?
-    let score: Float?
-    let matched: Bool
-    let rejection: String?
-    let photoDuration: TimeInterval?
-    let photoResult: String?
-}
-
-// Scalar measurements only. Kept in memory for the latest attempt.
-struct DeveloperReadout {
-    var requested: CaptureResolution?
-    var active: CaptureResolution?
-    var resolution: CaptureResolution?
-    var fps: Double?
-    var box: CGRect?
-    var tier: AlignmentTier?
-    var detection: Double?
-    var alignment: Double?
-    var inference: Double?
-    var visionWarmup: String?
-    var startupPhases: [(String, TimeInterval)] = []
-    var firstFrame: Double?
-    var runningToFirstPTS: Double?
-    var firstPTSToCallback: Double?
-    var scanPhases: [(String, TimeInterval?)] = []
-    var framesProcessed: Int?
-    var frameTimings: [RecognitionFrameTiming] = []
-    var recognition: Double?
-    var delivery: Double?
-    var similarity: Float?
-    var result = "Waiting for scan"
-    var reason: String?
-
-    mutating func observe(_ frame: CameraFrame, _ scan: ScanMeasurement, score: Float?) {
-        requested = frame.requested
-        active = frame.active
-        resolution = frame.resolution
-        fps = frame.fps
-        box = scan.box
-        tier = scan.tier
-        detection = scan.detection
-        alignment = scan.alignment
-        inference = scan.inference
-        similarity = score
-        reason = scan.reason ?? ((score ?? -1) < 0.66 ? "Identity mismatch" : nil)
-        result = reason == nil ? "Awaiting confirmation" : "Frame rejected"
-    }
-
-    var rows: [(String, String)] {
-        func ms(_ value: Double?) -> String { value.map { String(format: "%.1f ms", $0 * 1000) } ?? "—" }
-        var rows: [(String, String)] = [
-            ("Requested resolution", requested?.label ?? "—"),
-            ("Active camera format", active?.label ?? "—"),
-            ("Delivered resolution", resolution?.label ?? "—"),
-            ("Actual FPS", fps.map { String(format: "%.1f", $0) } ?? "—"),
-            ("Face bounding box (x, y, w, h)", box.map { String(format: "%.0f, %.0f, %.0f, %.0f", $0.minX, $0.minY, $0.width, $0.height) } ?? "—"),
-            ("Face width", box.flatMap { b in resolution.map { String(format: "%.0f px · %.1f%%", b.width, 100 * b.width / CGFloat($0.width)) } } ?? "—"),
-            ("Alignment tier", tier?.rawValue ?? "—"),
-            ("Vision warmup at first frame", visionWarmup ?? "—"),
-            ("Trigger to first frame", ms(firstFrame))
-        ]
-        rows.append(contentsOf: startupPhases.map { ($0.0, ms($0.1)) })
-        rows.append(contentsOf: [
-            ("First frame split · Running → timestamp", ms(runningToFirstPTS)),
-            ("First frame split · Timestamp → callback", ms(firstPTSToCallback)),
-            ("Detection", ms(detection)), ("Alignment", ms(alignment)), ("ArcFace inference", ms(inference))
-        ])
-        rows.append(contentsOf: scanPhases.map { ($0.0, ms($0.1)) })
-        rows.append(("Frames analyzed", framesProcessed.map { String($0) } ?? "—"))
-        for (index, frame) in frameTimings.enumerated() {
-            let match = frame.matched ? "Matched" : (frame.rejection ?? "Identity mismatch")
-            let score = frame.score.map { String(format: " · score %.3f", $0) } ?? ""
-            let photo = frame.photoResult.map { "Photo: \($0) · \(ms(frame.photoDuration))" }
-            let timings = "Detect \(ms(frame.detection)) · Align \(ms(frame.alignment)) · ArcFace \(ms(frame.inference))"
-            let headline = "+\(ms(frame.startFromFirstFrame)) · analysis \(ms(frame.analysis))"
-            rows.append(("Frame \(index + 1)", [headline, timings, match + score, photo].compactMap { $0 }.joined(separator: "\n")))
-        }
-        if !frameTimings.isEmpty, let framesProcessed, framesProcessed > frameTimings.count {
-            rows.append(("Frame details", "Showing first \(frameTimings.count) of \(framesProcessed)"))
-        }
-        rows.append(contentsOf: [
-            ("Trigger to recognition", ms(recognition)), ("Trigger to verified fill", ms(delivery)),
-            ("Cosine similarity", similarity.map { String(format: "%.3f", $0) } ?? "—"),
-            ("Recognition result", result), ("Rejection reason", reason ?? "—")
-        ])
-        return rows
     }
 }
