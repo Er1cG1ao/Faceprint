@@ -43,15 +43,8 @@ nonisolated enum FaceDetector {
 
         // Chained to the rectangles results (via `inputFaceObservations`) rather than run independently, so results
         // correspond 1:1 in order — avoids the fragility of matching back via boundingBox float equality.
-        let qualityRequest = VNDetectFaceCaptureQualityRequest()
-        let landmarksRequest = VNDetectFaceLandmarksRequest()
-        qualityRequest.inputFaceObservations = faceObservations
-        landmarksRequest.inputFaceObservations = faceObservations
         let needQuality = includeQuality || faceObservations.contains { $0.boundingBox.width < 0.21 }
-        try handler.perform(needQuality ? [qualityRequest, landmarksRequest] : [landmarksRequest])
-
-        let qualityResults = qualityRequest.results ?? []
-        let landmarkResults = landmarksRequest.results ?? []
+        let (qualityResults, landmarkResults) = try faceDetails(in: handler, faces: faceObservations, includeQuality: needQuality)
 
         return faceObservations.enumerated().map { index, observation in
             let pixelRect = convertToImageSpace(observation.boundingBox, imageSize: imageSize)
@@ -66,6 +59,23 @@ nonisolated enum FaceDetector {
                 imageSize: imageSize
             )
         }
+    }
+
+    private static func faceDetails(in handler: VNImageRequestHandler, faces: [VNFaceObservation],
+                                    includeQuality: Bool) throws -> ([VNFaceObservation], [VNFaceObservation]) {
+        let quality = VNDetectFaceCaptureQualityRequest()
+        let landmarks = VNDetectFaceLandmarksRequest()
+        quality.inputFaceObservations = faces
+        landmarks.inputFaceObservations = faces
+        try handler.perform(includeQuality ? [quality, landmarks] : [landmarks])
+        return (quality.results ?? [], landmarks.results ?? [])
+    }
+
+    static func warmNonemptyPath(in buffer: CVPixelBuffer, normalizedBox: CGRect) throws {
+        let handler = VNImageRequestHandler(cvPixelBuffer: buffer, options: [:])
+        // A blank buffer cannot supply a detected face. Exercise the same
+        // downstream requests with a synthetic observation and discard the result.
+        _ = try faceDetails(in: handler, faces: [VNFaceObservation(boundingBox: normalizedBox)], includeQuality: true)
     }
 
     /// Vision's normalized rect has origin at bottom-left; `CGImage.cropping`

@@ -47,6 +47,7 @@ final class FillController: ObservableObject {
     private var retryAnchor: PromptRetryAnchor?
     private var retryHandoffStarted = false
     private var recognizer: Recognizer?
+    private var visionWarmupStatus = "Running"
     private var recognizerLoad: Task<Recognizer, Error>?
     private var probing = false
     @Published private(set) var diagnosticTrace = ""
@@ -120,6 +121,11 @@ final class FillController: ObservableObject {
         ) { [weak self] _ in Task { @MainActor in self?.screenLocked = false; self?.nextAutomaticDataAttempt = .distantPast } }
 
         recognizerLoad = Task.detached(priority: .userInitiated) { try Recognizer() }
+        let warmup = Task.detached(priority: .utility) { await VisionWarmup.run() }
+        Task { [weak self] in
+            let status = await warmup.value
+            self?.visionWarmupStatus = status
+        }
 
     }
 
@@ -635,6 +641,7 @@ final class FillController: ObservableObject {
                         record("First camera frame received (\(frame.resolution.label))")
                         if developerMode {
                             let timing = frame.firstFrameTiming
+                            readout.visionWarmup = visionWarmupStatus
                             readout.firstFrame = timing.callbackAt - triggerAt
                             readout.startupPhases = startup.phases(trigger: triggerAt, task: taskAt, checked: checkedAt, firstFrame: timing.callbackAt)
                             let breakdown = timing.split(after: startup)

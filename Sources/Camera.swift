@@ -261,6 +261,7 @@ struct DeveloperReadout {
     var detection: Double?
     var alignment: Double?
     var inference: Double?
+    var visionWarmup: String?
     var startupPhases: [(String, TimeInterval)] = []
     var firstFrame: Double?
     var runningToFirstPTS: Double?
@@ -299,6 +300,7 @@ struct DeveloperReadout {
             ("Face bounding box (x, y, w, h)", box.map { String(format: "%.0f, %.0f, %.0f, %.0f", $0.minX, $0.minY, $0.width, $0.height) } ?? "—"),
             ("Face width", box.flatMap { b in resolution.map { String(format: "%.0f px · %.1f%%", b.width, 100 * b.width / CGFloat($0.width)) } } ?? "—"),
             ("Alignment tier", tier?.rawValue ?? "—"),
+            ("Vision warmup at first frame", visionWarmup ?? "—"),
             ("Trigger to first frame", ms(firstFrame))
         ]
         rows.append(contentsOf: startupPhases.map { ($0.0, ms($0.1)) })
