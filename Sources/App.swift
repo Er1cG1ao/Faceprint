@@ -542,6 +542,9 @@ final class FillController: ObservableObject {
             let taskAt = ProcessInfo.processInfo.systemUptime
             var attemptFailed = false
             var startedScan = false
+            let collectFrameTimings = developerMode
+            var frameTimings: [RecognitionFrameTiming] = []
+            var framesProcessed = 0
             var handedOff = false
             var anchor: PromptRetryAnchor?
             var stage = "Checking prompt"
@@ -603,7 +606,6 @@ final class FillController: ObservableObject {
                 var promptCheckSeconds: TimeInterval = 0
                 var matchingSeconds: TimeInterval = 0
                 var photoCheckSeconds: TimeInterval = 0
-                var framesProcessed = 0
                 func checkPrompt() async throws -> Bool {
                     let start = ProcessInfo.processInfo.systemUptime
                     defer {
@@ -655,8 +657,22 @@ final class FillController: ObservableObject {
                         return (scan, score)
                     }
                     let result = scan.result
-                    matchingSeconds += ProcessInfo.processInfo.systemUptime - inferenceStart
+                    let analysisDuration = ProcessInfo.processInfo.systemUptime - inferenceStart
+                    matchingSeconds += analysisDuration
                     framesProcessed += 1
+                    let scoreMatched = result != nil && (score ?? -1) >= 0.66
+                    var photoDuration: TimeInterval?
+                    var photoResult: String?
+                    defer {
+                        if collectFrameTimings, frameTimings.count < 8 {
+                            frameTimings.append(RecognitionFrameTiming(
+                                startFromFirstFrame: inferenceStart - frame.firstFrameTiming.callbackAt,
+                                analysis: analysisDuration, detection: scan.detection,
+                                alignment: scan.alignment, inference: scan.inference,
+                                score: score, matched: scoreMatched, rejection: scan.reason,
+                                photoDuration: photoDuration, photoResult: photoResult))
+                        }
+                    }
                     try Task.checkCancellation()
                     if developerMode { readout.observe(frame, scan, score: score) }
                     if !receivedFirstInference {
@@ -664,7 +680,7 @@ final class FillController: ObservableObject {
                         receivedFirstInference = true
                     }
                     try Task.checkCancellation()
-                    guard let result, (score ?? -1) >= 0.66 else {
+                    guard let result, scoreMatched else {
                         _ = matchGate.observe(frame: frame.id, matched: false)
                         liveness.reset()
                         status = "Looking for your enrolled face…"
@@ -676,11 +692,19 @@ final class FillController: ObservableObject {
                     if faceReady && firstPairAt == nil { firstPairAt = matchAt }
                     if usePhotoChecks {
                         let photoCheckStart = ProcessInfo.processInfo.systemUptime
+                        photoResult = "Interrupted"
                         let features = try await performPromptWork {
                             try await LivenessFeatureExtractor.extract(from: result, frame: frame)
                         }
                         let snapshot = liveness.observe(features)
-                        photoCheckSeconds += ProcessInfo.processInfo.systemUptime - photoCheckStart
+                        let duration = ProcessInfo.processInfo.systemUptime - photoCheckStart
+                        photoCheckSeconds += duration
+                        photoDuration = duration
+                        switch snapshot.decision {
+                        case .confirmed: photoResult = "Confirmed"
+                        case .pending: photoResult = "Pending"
+                        case .denied: photoResult = "Denied"
+                        }
                         guard !snapshot.decision.isDenied else {
                             throw FillError.message(snapshot.decision.denialReason ?? "Photo check failed.")
                         }
@@ -704,7 +728,6 @@ final class FillController: ObservableObject {
                             ("First frame → first score match", firstMatchAt.map { $0 - callbackAt }),
                             ("First frame → first matching pair", firstPairAt.map { $0 - callbackAt })
                         ]
-                        readout.framesProcessed = framesProcessed
                     }
                     camera.stop()
                     record("Enrolled face matched on two distinct frames")
@@ -771,6 +794,10 @@ final class FillController: ObservableObject {
                 }
             }
             if generation == currentGeneration {
+                if developerMode, framesProcessed > 0 {
+                    readout.framesProcessed = framesProcessed
+                    readout.frameTimings = frameTimings
+                }
                 if startedScan && !handedOff { camera.stop() }
                 busy = false
                 operation = nil

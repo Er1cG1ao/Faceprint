@@ -237,6 +237,19 @@ final class Camera: NSObject, AVCaptureVideoDataOutputSampleBufferDelegate, @unc
     }
 }
 
+struct RecognitionFrameTiming {
+    let startFromFirstFrame: TimeInterval
+    let analysis: TimeInterval
+    let detection: TimeInterval
+    let alignment: TimeInterval?
+    let inference: TimeInterval?
+    let score: Float?
+    let matched: Bool
+    let rejection: String?
+    let photoDuration: TimeInterval?
+    let photoResult: String?
+}
+
 // Scalar measurements only. Kept in memory for the latest attempt.
 struct DeveloperReadout {
     var requested: CaptureResolution?
@@ -254,6 +267,7 @@ struct DeveloperReadout {
     var firstPTSToCallback: Double?
     var scanPhases: [(String, TimeInterval?)] = []
     var framesProcessed: Int?
+    var frameTimings: [RecognitionFrameTiming] = []
     var recognition: Double?
     var delivery: Double?
     var similarity: Float?
@@ -294,8 +308,19 @@ struct DeveloperReadout {
             ("Detection", ms(detection)), ("Alignment", ms(alignment)), ("ArcFace inference", ms(inference))
         ])
         rows.append(contentsOf: scanPhases.map { ($0.0, ms($0.1)) })
+        rows.append(("Frames analyzed", framesProcessed.map { String($0) } ?? "—"))
+        for (index, frame) in frameTimings.enumerated() {
+            let match = frame.matched ? "Matched" : (frame.rejection ?? "Identity mismatch")
+            let score = frame.score.map { String(format: " · score %.3f", $0) } ?? ""
+            let photo = frame.photoResult.map { "Photo: \($0) · \(ms(frame.photoDuration))" }
+            let timings = "Detect \(ms(frame.detection)) · Align \(ms(frame.alignment)) · ArcFace \(ms(frame.inference))"
+            let headline = "+\(ms(frame.startFromFirstFrame)) · analysis \(ms(frame.analysis))"
+            rows.append(("Frame \(index + 1)", [headline, timings, match + score, photo].compactMap { $0 }.joined(separator: "\n")))
+        }
+        if !frameTimings.isEmpty, let framesProcessed, framesProcessed > frameTimings.count {
+            rows.append(("Frame details", "Showing first \(frameTimings.count) of \(framesProcessed)"))
+        }
         rows.append(contentsOf: [
-            ("Frames analyzed", framesProcessed.map { String($0) } ?? "—"),
             ("Trigger to recognition", ms(recognition)), ("Trigger to verified fill", ms(delivery)),
             ("Cosine similarity", similarity.map { String(format: "%.3f", $0) } ?? "—"),
             ("Recognition result", result), ("Rejection reason", reason ?? "—")
