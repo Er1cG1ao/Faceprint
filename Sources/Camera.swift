@@ -246,6 +246,8 @@ struct DeveloperReadout {
     var firstFrame: Double?
     var runningToFirstPTS: Double?
     var firstPTSToCallback: Double?
+    var scanPhases: [(String, TimeInterval?)] = []
+    var framesProcessed: Int?
     var recognition: Double?
     var delivery: Double?
     var similarity: Float?
@@ -283,7 +285,11 @@ struct DeveloperReadout {
         rows.append(contentsOf: [
             ("First frame split · Running → timestamp", ms(runningToFirstPTS)),
             ("First frame split · Timestamp → callback", ms(firstPTSToCallback)),
-            ("Detection", ms(detection)), ("Alignment", ms(alignment)), ("ArcFace inference", ms(inference)),
+            ("Detection", ms(detection)), ("Alignment", ms(alignment)), ("ArcFace inference", ms(inference))
+        ])
+        rows.append(contentsOf: scanPhases.map { ($0.0, ms($0.1)) })
+        rows.append(contentsOf: [
+            ("Frames analyzed", framesProcessed.map { String($0) } ?? "—"),
             ("Trigger to recognition", ms(recognition)), ("Trigger to verified fill", ms(delivery)),
             ("Cosine similarity", similarity.map { String(format: "%.3f", $0) } ?? "—"),
             ("Recognition result", result), ("Rejection reason", reason ?? "—")

@@ -594,7 +594,22 @@ final class FillController: ObservableObject {
                 var matchGate = FaceMatchGate()
                 var receivedFirstInference = false
                 var lastFrame: UInt64?
-                var receivedFirstFrame = false
+                var firstFrameTakenAt: TimeInterval?
+                var firstMatchAt: TimeInterval?
+                var firstPairAt: TimeInterval?
+                var promptCheckSeconds: TimeInterval = 0
+                var matchingSeconds: TimeInterval = 0
+                var photoCheckSeconds: TimeInterval = 0
+                var framesProcessed = 0
+                func checkPrompt() async throws -> Bool {
+                    let start = ProcessInfo.processInfo.systemUptime
+                    defer {
+                        if firstFrameTakenAt != nil {
+                            promptCheckSeconds += ProcessInfo.processInfo.systemUptime - start
+                        }
+                    }
+                    return try await performPromptWork { trigger.isCurrent() }
+                }
                 let deadline = Date().addingTimeInterval(12)
                 var nextIdlePromptCheck = ProcessInfo.processInfo.systemUptime + 0.1
                 var filled = false
@@ -602,7 +617,7 @@ final class FillController: ObservableObject {
                     try Task.checkCancellation()
                     guard let frame = camera.latestFrame(), frame.id != lastFrame else {
                         if ProcessInfo.processInfo.systemUptime >= nextIdlePromptCheck {
-                            guard try await performPromptWork({ trigger.isCurrent() }) else {
+                            guard try await checkPrompt() else {
                                 throw FillError.message("The prompt changed while waiting for a new camera frame.")
                             }
                             nextIdlePromptCheck = ProcessInfo.processInfo.systemUptime + 0.1
@@ -610,12 +625,8 @@ final class FillController: ObservableObject {
                         try await Task.sleep(nanoseconds: 6_000_000)
                         continue
                     }
-                    guard try await performPromptWork({ trigger.isCurrent() }) else {
-                        throw FillError.message("Prompt changed. Return to the supported prompt and hover the island to retry.")
-                    }
-                    nextIdlePromptCheck = ProcessInfo.processInfo.systemUptime + 0.1
-                    lastFrame = frame.id
-                    if !receivedFirstFrame {
+                    if firstFrameTakenAt == nil {
+                        firstFrameTakenAt = ProcessInfo.processInfo.systemUptime
                         record("First camera frame received (\(frame.resolution.label))")
                         if developerMode {
                             let timing = frame.firstFrameTiming
@@ -625,13 +636,19 @@ final class FillController: ObservableObject {
                             readout.runningToFirstPTS = breakdown?.runningToPresentation
                             readout.firstPTSToCallback = breakdown?.presentationToCallback
                         }
-                        receivedFirstFrame = true
                     }
+                    guard try await checkPrompt() else {
+                        throw FillError.message("Prompt changed. Return to the supported prompt and hover the island to retry.")
+                    }
+                    nextIdlePromptCheck = ProcessInfo.processInfo.systemUptime + 0.1
+                    lastFrame = frame.id
                     stage = "Matching face"
                     let inferenceStart = ProcessInfo.processInfo.systemUptime
                     let scan = try await performPromptWork { try recognizer.recognize(frame.buffer, sourceScale: frame.sourceScale, includeQuality: usePhotoChecks) }
                     let result = scan.result
                     let score = result.flatMap { templates.score($0.embedding) }
+                    matchingSeconds += ProcessInfo.processInfo.systemUptime - inferenceStart
+                    framesProcessed += 1
                     try Task.checkCancellation()
                     if developerMode { readout.observe(frame, scan, score: score) }
                     if !receivedFirstInference {
@@ -645,14 +662,19 @@ final class FillController: ObservableObject {
                         status = "Looking for your enrolled face…"
                         continue
                     }
+                    let matchAt = ProcessInfo.processInfo.systemUptime
+                    if firstMatchAt == nil { firstMatchAt = matchAt }
                     let faceReady = matchGate.observe(frame: frame.id, matched: true)
+                    if faceReady && firstPairAt == nil { firstPairAt = matchAt }
                     if usePhotoChecks {
+                        let photoCheckStart = ProcessInfo.processInfo.systemUptime
                         let features = try await performPromptWork {
                             guard let image = frame.image else { throw FillError.message("Photo check frame unavailable.") }
                             let crop = image.cropping(to: result.face.boundingBox)
                             return LivenessFeatureExtractor.extract(from: result, frame: image, faceCrop: crop)
                         }
                         let snapshot = liveness.observe(features)
+                        photoCheckSeconds += ProcessInfo.processInfo.systemUptime - photoCheckStart
                         guard !snapshot.decision.isDenied else {
                             throw FillError.message(snapshot.decision.denialReason ?? "Photo check failed.")
                         }
@@ -660,7 +682,24 @@ final class FillController: ObservableObject {
                     }
                     guard faceReady else { continue }
                     attemptGate.mark(trigger.requestKey)
-                    if developerMode { readout.recognition = ProcessInfo.processInfo.systemUptime - traceStart; readout.result = "Matched" }
+                    if developerMode, let firstFrameTakenAt {
+                        let confirmedAt = ProcessInfo.processInfo.systemUptime
+                        let callbackAt = frame.firstFrameTiming.callbackAt
+                        readout.recognition = confirmedAt - triggerAt
+                        readout.result = "Matched"
+                        readout.scanPhases = [
+                            ("First frame → confirmation", confirmedAt - callbackAt),
+                            ("First frame → scan takes frame", firstFrameTakenAt - callbackAt),
+                            ("Prompt checks · total", promptCheckSeconds),
+                            ("Face analysis and scoring · total", matchingSeconds),
+                            ("Photo checks · total", usePhotoChecks ? photoCheckSeconds : nil),
+                            ("Frame waits and other work", max(0, confirmedAt - firstFrameTakenAt
+                                - promptCheckSeconds - matchingSeconds - photoCheckSeconds)),
+                            ("First frame → first score match", firstMatchAt.map { $0 - callbackAt }),
+                            ("First frame → first matching pair", firstPairAt.map { $0 - callbackAt })
+                        ]
+                        readout.framesProcessed = framesProcessed
+                    }
                     camera.stop()
                     record("Enrolled face matched on two distinct frames")
                     handedOff = true
